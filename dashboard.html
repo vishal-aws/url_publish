@@ -1,0 +1,2557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script>
+    /* Auto-bust CDN/browser cache by pinning a version in the URL */
+    (function () {
+      const BUILD_VERSION = "{{BUILD_VERSION}}"; // will be stamped by EC2
+      const u = new URL(window.location.href);
+      if (u.searchParams.get("v") !== BUILD_VERSION) {
+        u.searchParams.set("v", BUILD_VERSION);
+        window.location.replace(u.toString()); // one-time redirect
+      }
+    })();
+    </script>
+  <meta http-equiv="Cache-Control" content="no-store, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+    
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Monitoring Tool</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px}
+    .container{max-width:1400px;margin:0 auto}
+    .header{background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-radius:16px;padding:30px;margin-bottom:16px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.1)}
+    .header h1{font-size:32px;color:#2c3e50;margin-bottom:10px;font-weight:700}
+    .header-subtitle{color:#6c757d;font-size:16px;margin-bottom:12px}
+    .status-badge{display:inline-flex;align-items:center;padding:12px 24px;border-radius:50px;font-weight:600;font-size:18px;gap:8px;margin:6px 0}
+    .status-healthy{background:#d4edda;color:#155724}
+    .status-warning{background:#fff3cd;color:#856404}
+    .status-critical{background:#f8d7da;color:#721c24}
+
+    /* Global region filter */
+    .global-filters{display:flex;gap:12px;align-items:center;background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-radius:12px;padding:12px;margin-bottom:20px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+    .filter-item{display:flex;align-items:center;gap:8px}
+    .filter-item label{font-size:13px;color:#3b4a6b;font-weight:700}
+    .filter-item select{padding:6px 10px;border:1px solid #dfe3f0;border-radius:10px;background:#fff;cursor:pointer}
+    .btn{border:1px solid #dfe3f0;background:#f6f7fb;color:#3b4a6b;font-weight:600;border-radius:999px;padding:6px 12px;cursor:pointer}
+    .btn:hover{background:#eef1ff}
+    .btn.primary{background:#667eea;color:#fff;border-color:#667eea;box-shadow:0 6px 18px rgba(102,126,234,.25)}
+
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:30px}
+    .kpi-card{background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-radius:16px;padding:25px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.1);transition:all .3s ease;cursor:pointer;border:2px solid transparent}
+    .kpi-card:hover{transform:translateY(-5px);box-shadow:0 12px 40px rgba(0,0,0,.15)}
+    .kpi-card.active{border-color:#667eea;background:rgba(102,126,234,.06);transform:translateY(-3px)}
+    .kpi-number{font-size:36px;font-weight:800;margin-bottom:8px;background:linear-gradient(45deg,#667eea,#764ba2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .kpi-number.solid{background:none;-webkit-text-fill-color:currentColor;background-clip:unset}
+    .kpi-fill{color:#fff !important;border-color:rgba(255,255,255,.45) !important}
+    .kpi-fill-critical{background:#ff0000 !important}
+    .kpi-fill-warning{background:#ffbf00 !important}
+    .kpi-fill-healthy{background:#28a745 !important}
+    .kpi-label{font-size:14px;color:#6c757d;text-transform:uppercase;font-weight:600;letter-spacing:.5px}
+    .kpi-trend{font-size:14px;margin-top:8px;font-weight:600}
+    .trend-up{color:#28a745}.trend-down{color:#dc3545}.trend-neutral{color:#6c757d}
+
+    .main-content{display:grid;grid-template-columns:2fr 1fr;gap:30px;margin-bottom:30px}
+    .section{background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-radius:16px;padding:30px;box-shadow:0 8px 32px rgba(0,0,0,.1)}
+    .section-header{display:flex;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:2px solid #e9ecef}
+    .section-icon{font-size:28px;margin-right:15px}
+    .section-title{font-size:24px;font-weight:700;color:#2c3e50;flex:1}
+    .section-count{background:#6c757d;color:#fff;padding:4px 12px;border-radius:20px;font-size:14px;font-weight:600}
+
+    .filter-info{background:rgba(102,126,234,.1);border:1px solid rgba(102,126,234,.2);border-radius:8px;padding:15px;margin-bottom:20px;display:none;align-items:center;justify-content:space-between;gap:8px}
+    .filter-info.active{display:flex}
+    .filter-info span{font-weight:600;color:#667eea}
+    .filter-info .group{display:flex;gap:8px;align-items:center}
+
+    .search-container{background:rgba(248,249,250,.8);border-radius:8px;padding:15px;margin-bottom:20px;display:flex;align-items:center;gap:10px;transition:.3s}
+    #search-input{flex:1;padding:8px 12px;border:1px solid #dee2e6;border-radius:20px;font-size:14px;outline:none;transition:border-color .3s ease}
+    #search-input:focus{border-color:#667eea;box-shadow:0 0 0 2px rgba(102,126,234,.2)}
+
+    .sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;margin-bottom:30px}
+    .site-card{background:rgba(255,255,255,.95);border-radius:12px;padding:20px;box-shadow:0 4px 12px rgba(0,0,0,.1);border-left:5px solid;transition:.3s}
+    .site-card:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.15)}
+    .site-card.highlighted{border:2px solid #667eea;box-shadow:0 8px 25px rgba(102,126,234,.2)}
+    .site-critical{border-left-color:#ff0000}.site-warning{border-left-color:#ffbf00}.site-healthy{border-left-color:#28a745}
+
+    .site-header{display:flex;align-items:flex-start;gap:8px;margin-bottom:15px}
+    .site-icon{font-size:20px;margin-right:10px}
+    .site-name{font-size:18px;font-weight:700;color:#2c3e50;flex:1;overflow-wrap:anywhere}
+    .site-score{font-size:14px;font-weight:600;padding:4px 10px;border-radius:15px;color:#fff}
+    .score-critical{background:#ff0000}.score-warning{background:#ffbf00}.score-healthy{background:#28a745}
+
+    .site-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:15px 0}
+    .metric{text-align:center;padding:10px;background:#f8f9fa;border-radius:8px}
+    .metric-value{font-size:18px;font-weight:700;color:#2c3e50}
+    .metric-label{font-size:11px;color:#6c757d;text-transform:uppercase;margin-top:4px;font-weight:600}
+
+    .baseline-info{background:#e3f2fd;padding:12px;border-radius:8px;margin-top:15px;border-left:3px solid #2196f3;font-size:13px}
+    .baseline-row{display:flex;justify-content:space-between;margin:4px 0}
+    .baseline-label{font-weight:600;color:#1976d2}
+    .change-positive{color:#28a745;font-weight:600}
+    .change-negative{color:#dc3545;font-weight:600}
+
+    .chart-container{position:relative;margin:20px 0;max-height:480px;overflow:auto}
+
+    .alerts-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    .chip{background:#eef1ff;border:1px solid #dfe3f0;border-radius:999px;padding:4px 10px;font-size:12px}
+    .chip.toggled{background:#667eea;color:#fff;border-color:#667eea}
+    .chip button{border:none;background:none;cursor:pointer;margin-left:6px}
+
+    .alerts-list{max-height:400px;overflow-y:auto}
+    .alert-item{background:#f8f9fa;border-left:4px solid;padding:12px;margin:10px 0;border-radius:0 8px 8px 0;font-size:14px;border-bottom:1px dashed #e9ecef}
+    .alert-high{border-left-color:#ff0000;background:#f8d7da}
+    .alert-medium{border-left-color:#ffbf00;background:#fff3cd}
+    .alert-low{border-left-color:#28a745;background:#d4edda}
+    .alert-actions{display:flex;gap:6px;margin-top:6px}
+    .alert-actions .btn{padding:4px 8px;font-size:12px}
+
+    .last-updated{text-align:center;color:#6c757d;font-size:14px;margin-top:20px;padding:15px;background:rgba(255,255,255,.8);border-radius:8px}
+
+    .view-toggle{display:flex;gap:8px;margin:8px 0 10px 48px}
+    .toggle-btn{border:1px solid #dfe3f0;background:#f6f7fb;color:#3b4a6b;font-weight:600;border-radius:999px;padding:6px 14px;cursor:pointer;transition:.2s}
+    .toggle-btn:hover{background:#eef1ff}
+    .toggle-btn.active{background:#667eea;color:#fff;border-color:#667eea;box-shadow:0 6px 18px rgba(102,126,234,.25)}
+    .toggle-btn.small{padding:4px 10px;font-size:12px}
+
+    /* Hex */
+    .hex-legend{display:flex;gap:12px;align-items:center;margin:4px 0 8px 48px;font-size:12px;color:#566}
+    .legend-dot{width:14px;height:14px;border-radius:3px}
+    .legend-ok{background:#28a745}.legend-warn{background:#ffbf00}.legend-crit{background:#ff0000}
+    .hex-grid{--size:36px;display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--size),1fr));gap:8px;justify-items:center;padding:6px}
+    .hex{width:var(--size);height:calc(var(--size)*0.866);background:#28a745;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);transition:.15s;position:relative;cursor:pointer;box-shadow:0 0 0 rgba(0,0,0,0)}
+    .hex.warning{background:#ffbf00}.hex.critical{background:#ff0000}
+    .hex:hover{transform:scale(1.15);z-index:2;box-shadow:0 10px 18px rgba(0,0,0,.25)}
+    .hex::after{content:attr(data-title);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);white-space:nowrap;background:rgba(20,24,40,.9);color:#fff;font-size:11px;padding:4px 8px;border-radius:6px;opacity:0;pointer-events:none;transition:.15s}
+    .hex:hover::after{opacity:1}
+
+    /* Trend controls */
+    .trend-controls{display:flex;gap:10px;align-items:center;margin:8px 0 12px 48px;flex-wrap:wrap}
+    .trend-chips{display:flex;gap:6px;flex-wrap:wrap}
+    #site-search,#region-search{min-width:240px}
+
+    /* Region drilldown chips/list */
+    .sites-in-region{max-height:180px;overflow:auto;display:flex;flex-wrap:wrap;gap:6px}
+    .site-chip{background:#eef1ff;border:1px solid #dfe3f0;border-radius:9999px;padding:4px 10px;font-size:12px;cursor:pointer}
+    .site-chip:hover{background:#dde3ff}
+
+    .count-badge{
+      --pct: 0%;
+      margin-left:8px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:700;
+      color:#1f2937;
+      background: linear-gradient(to right, rgba(102,126,234,.35) var(--pct), rgba(229,231,235,.8) var(--pct));
+      border:1px solid #dfe3f0;
+    }
+    .chip-rank{
+      display:inline-flex;align-items:center;justify-content:center;width:26px;height:18px;line-height:18px;
+      font-size:11px;font-weight:700;margin-right:6px;border-radius:999px;background:#eef1ff;border:1px solid #dfe3f0;
+      text-align:center;font-variant-numeric:tabular-nums;
+    }
+
+    /* Region overview controls + list */
+    .region-controls{display:flex;gap:10px;align-items:center;margin:-6px 0 10px 0;flex-wrap:wrap}
+    .region-mini{font-size:13px;color:#445;display:block;margin-top:10px}
+    .region-row{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(60,72,88,0.22)}
+    .region-row:last-child{border-bottom:0}
+    .region-row::after{content:'';position:relative;left:0;right:0;bottom:0;height:1px;background:linear-gradient(to right,rgba(0,0,0,0),rgba(0,0,0,0.08) 12%,rgba(0,0,0,0.08) 88%,rgba(0,0,0,0))}
+    .region-row:last-child::after{display:none}
+
+    @media (min-width:1100px){
+      .region-mini{column-count:2;column-gap:18px}
+      .region-row{break-inside:avoid}
+    }
+
+    /* Modal for "Others" */
+    .modal{position:fixed;inset:0;display:none}
+    .modal.show{display:block}
+    .modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+    .modal-card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;border-radius:12px;min-width:320px;max-width:640px;max-height:70vh;overflow:auto;padding:16px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+    .modal-card h3{margin-bottom:8px}
+    .modal-card .region-row{border-bottom:1px dashed #eee}
+
+    @media (max-width:768px){
+      .main-content{grid-template-columns:1fr}
+      .kpi-grid{grid-template-columns:repeat(2,1fr)}
+      .sites-grid{grid-template-columns:1fr}
+      .site-metrics{grid-template-columns:1fr}
+      .global-filters{flex-wrap:wrap}
+    }
+  </style>
+</head>
+<body>
+  <div style="text-align:center;font-size:13px;color:#555;background-color:#f8f9fa;padding:4px 0;border-bottom:1px solid #ddd;">
+    Developed by <strong>Vishal Chauhan</strong> for SPACE
+  </div>
+
+  <div class="container">
+    <div class="header">
+      <h1>🤖 AI Monitoring Tool</h1>
+      <div class="header-subtitle">Real-time Performance Analytics & Intelligence (12-min cycles)</div>
+      <div id="overall-badge" class="status-badge" style="display:inline-flex"></div>
+      
+
+    </div>
+
+    <!-- Global region filter + grouping toggle -->
+    <div class="global-filters">
+      <div class="filter-item">
+        <label>Region:</label>
+        <select id="region-filter"></select>
+      </div>
+      <div class="filter-item">
+        <label>Trend Grouping:</label>
+        <div class="btn-group">
+          <button id="group-sites" class="toggle-btn small active" onclick="setTrendGrouping('sites')">By Sites</button>
+          <button id="group-regions" class="toggle-btn small" onclick="setTrendGrouping('regions')">By Regions</button>
+        </div>
+      </div>
+      <button class="btn" onclick="clearRegion()">Clear Region</button>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-fill kpi-fill-critical" onclick="filterSites('critical')" data-filter="critical">
+        <div id="critical-count" class="kpi-number solid">--</div>
+        <div class="kpi-label">Critical</div>
+      </div>
+      <div class="kpi-card kpi-fill kpi-fill-warning" onclick="filterSites('warning')" data-filter="warning">
+        <div id="warning-count" class="kpi-number solid">--</div>
+        <div class="kpi-label">Warning</div>
+      </div>
+      <div class="kpi-card kpi-fill kpi-fill-healthy" onclick="filterSites('healthy')" data-filter="healthy">
+        <div id="healthy-count" class="kpi-number solid">--</div>
+        <div class="kpi-label">Healthy</div>
+      </div>
+      <div class="kpi-card" onclick="filterSites('all')" data-filter="all">
+        <div id="total-sites" class="kpi-number">--</div>
+        <div class="kpi-label">Total Sites</div>
+      </div>
+      <div class="kpi-card" onclick="filterSites('health')" data-filter="health">
+        <div id="health-score" class="kpi-number">--</div>
+        <div class="kpi-label">Health Score</div>
+        <div id="health-trend" class="kpi-trend">--</div>
+      </div>
+      <div class="kpi-card" onclick="filterSites('success')" data-filter="success">
+        <div id="success-rate" class="kpi-number">--</div>
+        <div class="kpi-label">Success Rate</div>
+        <div id="success-trend" class="kpi-trend">--</div>
+      </div>
+      <div class="kpi-card" onclick="filterSites('load-time')" data-filter="load-time">
+        <div id="avg-load-time" class="kpi-number">--</div>
+        <div class="kpi-label">Avg Load Time</div>
+        <div id="load-trend" class="kpi-trend">--</div>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <div class="section">
+        <div class="section-header">
+          <div class="section-icon">📊</div>
+          <div class="section-title">Performance Trends</div>
+        </div>
+
+        <div class="view-toggle">
+          <button id="btn-trend" class="toggle-btn active" onclick="setViewMode('trend')">Site trends</button>
+          <button id="btn-hex" class="toggle-btn" onclick="setViewMode('hex')">Hex grid</button>
+        </div>
+
+        <div id="hex-legend" class="hex-legend" style="display:none">
+          <span>Legend:</span>
+          <div class="legend-dot legend-crit"></div> Critical
+          <div class="legend-dot legend-warn"></div> Warning
+          <div class="legend-dot legend-ok"></div> Healthy
+        </div>
+
+        <!-- Trend controls -->
+        <div id="trend-controls" class="trend-controls">
+          <!-- Sites mode -->
+          <div id="trend-sites-controls" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <input id="site-search" placeholder="Add site..." list="sites-list"/>
+            <datalist id="sites-list"></datalist>
+            <div class="trend-chips" id="selected-sites"></div>
+          </div>
+
+          <!-- Regions mode -->
+          <div id="trend-regions-controls" style="display:none;gap:10px;align-items:center;flex-wrap:wrap">
+            <input id="region-search" placeholder="Add region..." list="regions-list"/>
+            <datalist id="regions-list"></datalist>
+            <div class="trend-chips" id="selected-regions"></div>
+          </div>
+
+          <!-- Metric/Window + Region aggregate -->
+          <div style="margin-left:auto; display:flex; gap:8px; align-items:center">
+            <label class="toggle-btn small" style="display:flex;align-items:center;gap:6px;margin:0">
+              <input type="checkbox" id="overlay-region" onchange="updateTrendChart()">
+              <span id="overlay-text">Region aggregate</span>
+            </label>
+            <select id="metric-select">
+              <option value="p95" selected>p95</option>
+              <option value="avg">Average</option>
+            </select>
+            <select id="window-select">
+              <option value="2">2h</option>
+              <option value="6" selected>6h</option>
+              <option value="12">12h</option>
+              <option value="24">24h</option>
+            </select>
+          </div>
+        </div>
+
+        <canvas id="trend-chart" style="width:100%; max-height:420px"></canvas>
+        <div class="chart-container" style="display:none"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div class="section-icon">🌍</div>
+          <div class="section-title">Region Overview</div>
+        </div>
+
+        <div class="region-controls">
+          <div class="filter-item">
+            <label>Rank by:</label>
+            <select id="rank-by">
+              <option value="sites">Sites</option>
+              <option value="p95" selected>p95 (slow first)</option>
+              <option value="issues">Issues (⚠️/🚨)</option>
+            </select>
+          </div>
+          <div class="filter-item">
+            <label>TopN:</label>
+            <select id="topn">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="15">15</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <button id="toggle-list" class="btn">Show all</button>
+          <button class="btn" onclick="clearRegion()">Clear Region</button>
+        </div>
+
+        <canvas id="region-bars" style="width:100%;max-height:260px"></canvas>
+        <div id="region-mini-list" class="region-mini"></div>
+        <div style="margin-top:12px">
+          <div style="font-weight:700;margin-bottom:6px">Sites in <span id="drilldown-region-label">All</span></div>
+          <div id="region-drilldown" class="sites-in-region"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div class="section-icon">🚨</div>
+          <div class="section-title">Recent Alerts</div>
+          <div id="alerts-count" class="section-count">0</div>
+        </div>
+
+        <div class="alerts-toolbar">
+          <span class="chip">Window:</span>
+          <span class="chip" data-win="1h" onclick="setAlertsWindow(this)">1h</span>
+          <span class="chip toggled" data-win="6h" onclick="setAlertsWindow(this)">6h</span>
+          <span class="chip" data-win="12h" onclick="setAlertsWindow(this)">12h</span>
+          <span class="chip" data-win="24h" onclick="setAlertsWindow(this)">24h</span>
+          <span class="chip" data-win="last24" onclick="setAlertsWindow(this)">Last 24 runs</span>
+          <span style="width:12px"></span>
+          <span class="chip toggled" data-sev="high" onclick="toggleSev(this)">HIGH</span>
+          <span class="chip toggled" data-sev="medium" onclick="toggleSev(this)">MED</span>
+          <span class="chip toggled" data-sev="low" onclick="toggleSev(this)">LOW</span>
+        </div>
+
+        <div id="alerts-list" class="alerts-list">
+          <div class="loading">Loading alerts...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">🌐</div>
+        <div class="section-title">Site Status</div>
+        <div id="sites-count" class="section-count">0</div>
+      </div>
+
+      <div id="filter-info" class="filter-info">
+        <span id="filter-text">Showing all sites</span>
+        <div class="group">
+          <button class="btn" onclick="clearSiteListFilters()">Clear</button>
+          <button class="btn" onclick="clearRegion()">Clear Region</button>
+        </div>
+      </div>
+
+      <div class="search-container">
+        <span style="font-size:20px">🔍</span>
+        <input id="search-input" placeholder="Search sites by name... (Press Escape to clear)"
+              onkeyup="handleSearchKeyboard(event)" oninput="handleSearch()"/>
+        <button onclick="clearSearch()" id="clear-search"
+                style="display:none;background:#6c757d;color:#fff;border:none;padding:6px 12px;border-radius:15px;cursor:pointer;font-size:12px">
+          ✕ Clear
+        </button>
+        <div id="search-results-info" style="font-size:14px;color:#6c757d;display:none"></div>
+      </div>
+
+      <div id="sites-container" class="sites-grid">
+        <div class="loading">Loading sites...</div>
+      </div>
+    </div>
+
+    <div class="last-updated">
+      <span>Last Updated: <span id="last-update">--</span></span>
+      <span id="vm-factor-pill" class="chip vm-factor-pill" style="margin-left:8px;display:none"></span>
+
+      <button onclick="refreshData()" class="btn primary" style="margin-left:10px">🔄 Refresh</button>
+    </div>
+    
+  </div>
+
+  <!-- Modal for Others -->
+  <div id="others-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" onclick="hideOthersModal()"></div>
+    <div class="modal-card">
+      <h3>Hidden Regions</h3>
+      <div id="others-content"></div>
+      <div style="text-align:right;margin-top:10px">
+        <button class="btn" onclick="hideOthersModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+const V = new URL(location.href).searchParams.get("v") || "{{BUILD_VERSION}}";
+
+
+// ===== Helpers =====
+function runSnapBinChart(ts){
+  const m = istMidnight(ts);
+  const k = Math.round((ts - m) / CHART_BIN_MS);
+  return m + k * CHART_BIN_MS;
+}
+function istBinFloorChart(ts){
+  const m = istMidnight(ts);
+  return m + Math.floor((ts - m) / CHART_BIN_MS) * CHART_BIN_MS;
+}
+function buildBinsRangeChart(start, end){
+  const first = runSnapBinChart(start);
+  const last  = runSnapBinChart(end);
+  const out = [];
+  for (let t = first; t <= last; t += CHART_BIN_MS) out.push(t);
+  return out;
+}
+
+
+function esc(s){ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; }
+function asIST(d){ return new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }); }
+
+// NEW: robust timestamp parsing (treat missing TZ as UTC)
+function parseTsMs(s){
+  if (typeof s !== 'string') return new Date(s).getTime();
+  if (!/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) {
+    const fixed = s.includes('T') ? s : s.replace(' ', 'T');
+    return new Date(fixed + 'Z').getTime();
+  }
+  return new Date(s).getTime();
+}
+
+function avg(a){ return a.length? a.reduce((x,y)=>x+y,0)/a.length : 0; }
+function stdDev(v){ if(v.length<=1) return 0; const m=avg(v); const s=v.reduce((S,x)=>S+Math.pow(x-m,2),0)/v.length; return Math.sqrt(s); }
+function percentile(values, p){
+  if (!values?.length) return 0;
+  const a = values.slice().sort((x,y)=>x-y);
+  const i = Math.ceil((p/100)*a.length) - 1;
+  return a[Math.max(0, Math.min(i, a.length-1))];
+}
+function istBinFloor(ts){
+  const m = istMidnight(ts);
+  return m + Math.floor((ts - m) / RUN_BIN_MS) * RUN_BIN_MS;
+}
+function buildBinsRange(start, end){
+  // include bins that samples might round into (± half a bin)
+  const first = istBinFloor(start - RUN_BIN_MS/2);
+  const last  = istBinFloor(end   + RUN_BIN_MS/2);
+  const out = [];
+  for (let t = first; t <= last; t += RUN_BIN_MS) out.push(t);
+  return out;
+}
+
+
+// ===== Region utils =====
+function getHostname(s){
+  try{
+    if(!s) return '';
+    const raw = String(s).trim();
+    if(/^https?:\/\//i.test(raw)) return new URL(raw).hostname.toLowerCase();
+    // Handle "example.com.", "WWW.example.com:443/path?x", etc.
+    const hostOnly = raw
+      .replace(/^https?:\/\//i, '')
+      .replace(/[/?#].*$/, '')   // drop path/query/hash
+      .replace(/:\d+$/, '');     // drop port
+    return canonicalHost(hostOnly);
+  }catch{
+    return canonicalHost(String(s || ''));
+  }
+}
+
+
+const SLD_MAP = {
+  'co.uk':'UK','com.au':'AU','com.br':'BR','com.mx':'MX','info.sk':'SK','info.cz':'CZ','co.in':'IN','com.sg':'SG','com.nl':'NL','com.tr':'TR',
+  'com.ar':'AR','com.my':'MY','co.za':'ZA','com.hk':'HK','com.tw':'TW'
+};
+const TLD_MAP = {
+  'in':'IN','uk':'UK','gb':'UK','de':'DE','it':'IT','fr':'FR','es':'ES','nl':'NL','be':'BE','pl':'PL','se':'SE','no':'NO','fi':'FI','dk':'DK','cz':'CZ','at':'AT','ch':'CH','ie':'IE','pt':'PT','gr':'GR',
+  'us':'US','ca':'CA','sk':'SK','au':'AU','nz':'NZ','jp':'JP','kr':'KR','cn':'CN','sg':'SG','ae':'AE','sa':'SA','qa':'QA','il':'IL','tr':'TR','ru':'RU','br':'BR','mx':'MX','za':'ZA','hk':'HK','tw':'TW','eu':'EU','ro':'RO','hu':'HU','asia':'ASIA'
+};
+
+function parseUrlParts(s){
+  try{
+    const u = /^https?:\/\//i.test(s) ? new URL(s) : new URL('https://' + s);
+    return { host: u.hostname.toLowerCase(), path: (u.pathname||'').toLowerCase() };
+  }catch{
+    const host = getHostname(s);
+    const pathMatch = String(s).match(/^[a-z]+:\/\/[^\/]+(\/[^?#]*)/i);
+    return { host, path: (pathMatch?.[1]||'').toLowerCase() };
+  }
+}
+
+function normalizeCountryToken(tok){
+  if(!tok) return null;
+  const t = tok.toLowerCase();
+  if (t==='gb' || t==='uk') return 'UK';
+  if (t==='el') return 'GR';
+  if (t==='eu') return 'EU';
+  if (t==='asia') return 'ASIA';
+  if (TLD_MAP[t]) return TLD_MAP[t];
+  return null;
+}
+
+// NEW: scan any hostname label for locale tokens like "fr", "fr-be", "en_gb"
+function scanLabelsForLocale(labels){
+  const IGNORED = new Set(['www','www2','www3','m','amp','cdn','img','static']);
+  for (let i=0;i<labels.length;i++){
+    let label = labels[i];
+    if (IGNORED.has(label)) continue;
+
+    // split by - or _ and look for 2-letter tokens
+    const pieces = label.split(/[-_]/g).filter(Boolean);
+    if (pieces.length === 1 && /^[a-z]{2}$/i.test(pieces[0])){
+      const c = normalizeCountryToken(pieces[0]);
+      if (c) return c;
+    }
+    if (pieces.length >= 2 &&
+        /^[a-z]{2}$/i.test(pieces[0]) &&
+        /^[a-z]{2}$/i.test(pieces[1])) {
+      // locale pair like fr-be, en-gb → prefer country (second)
+      const b = normalizeCountryToken(pieces[1]);
+      if (b) return b;
+      const a = normalizeCountryToken(pieces[0]);
+      if (a) return a;
+    }
+  }
+  return null;
+}
+
+function regionFromSubdomain(host){
+  const labels = (host||'').split('.');
+  if (!labels.length) return null;
+  let first = labels[0];
+  if (first==='www' && labels.length>=2) first = labels[1];
+  const m = first.match(/^([a-z]{2})(?:[-_]([a-z]{2}))?$/i);
+  if (!m) return null;
+  const a = normalizeCountryToken(m[1]);
+  const b = normalizeCountryToken(m[2]);
+  return b || a;
+}
+
+function regionFromPath(path){
+  if (!path) return null;
+  const seg = path.split('/').find(x=>x);
+  if (!seg) return null;
+  const m = seg.toLowerCase().match(/^([a-z]{2})(?:[-_]([a-z]{2}))?$/i);
+  if (!m) return null;
+  const a = normalizeCountryToken(m[1]);
+  const b = normalizeCountryToken(m[2]);
+  return b || a;
+}
+
+function regionFromHost(host){
+  if(!host) return 'Global';
+  const parts = host.split('.');
+  const last = parts[parts.length-1];
+
+  // 1) strict ccTLD
+  if (TLD_MAP[last]) return TLD_MAP[last];
+
+  // 2) known SLD (co.uk, com.tr, …)
+  if (parts.length>=2){
+    const sldKey = parts[parts.length-2] + '.' + parts[parts.length-1];
+    if (SLD_MAP[sldKey]) return SLD_MAP[sldKey];
+  }
+
+  // 3) any label contains locale (handles "cotedor.com.fr-be")
+  const anyLabel = scanLabelsForLocale(parts);
+  if (anyLabel) return anyLabel;
+
+  // 4) first subdomain pattern
+  const subGuess = regionFromSubdomain(host);
+  if (subGuess) return subGuess;
+
+  return 'Global';
+}
+
+function regionFromUrl(u){
+  const { host, path } = parseUrlParts(u);
+  const hostRegion = regionFromHost(host);
+  if (hostRegion !== 'Global') return hostRegion;
+  const pathRegion = regionFromPath(path);
+  if (pathRegion) return pathRegion;
+  return 'Global';
+}
+
+function regionFromSiteId(siteId){
+  return regionFromUrl(siteId || '');
+}
+
+
+
+// ===== Globals =====
+let auditData = [];
+let refreshInterval = null;
+let currentFilter = 'all';
+let currentSearchTerm = '';
+let loadedBySite = new Map();
+let viewMode = 'trend'; // 'trend' | 'hex'
+
+// Region globals
+let currentRegion = 'All';
+let regionBarsChart = null;
+
+// Region overview control state
+let regionRankBy = 'p95';
+let regionTopN = 10;
+let regionListAll = false;
+let othersCache = [];
+
+// Trend state
+let trendChart = null;
+let selectedSiteIds = [];
+let trendGrouping = 'sites';  // 'sites' | 'regions'
+let selectedRegionKeys = [];
+
+// Alerts state
+let alertsWindow = '6h';
+let alertsSev = { high:true, medium:true, low:true };
+let ackStore = {};
+
+// ---- Config knobs ----
+const MIN_SAMPLES_CURRENT   = 4;        // was 6
+const MIN_BASELINE_POINTS   = 4;        // was 6  
+const CURRENT_WINDOW_HOURS  = 24;       // was 72
+const FRESH_EXCLUDE_HOURS   = 1;        // was 0.6
+const MIN_RUNS_FOR_RUN_BASELINE = 4;    // was 6
+const CLAMP_MIN = 0.05;  // seconds (ignore near-zero junk)
+const CLAMP_MAX = 60;    // seconds (hard cap for bad spikes)
+
+
+const RUN_BIN_MS = 12 * 60 * 1000;      // was 3 * 60 * 60 * 1000
+let CHART_BIN_MS = 12 * 60 * 1000;      // was 15 * 60 * 1000
+
+// Adaptive bin size by selected window (optional but recommended)
+function getChartBinMs(){
+  const h = parseInt((document.getElementById('window-select')?.value)||'24',10);
+  if (h <= 2)  return 12*60*1000; // 2h -> 12m bins
+  if (h <= 6)  return 12*60*1000; // 6h -> 12m bins
+  if (h <= 12) return 30*60*1000; // 12h -> 30m bins
+  return 60*60*1000;              // 24h -> 60m bins
+}
+
+
+const EW_RATIO = 1.25;
+const EW_CONSEC = 3;
+
+// ===== Dynamic scheduled snapping (auto/prod/test) =====
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+let SNAP_MODE = null;
+let DYNAMIC_GRACE_MS = 15 * 60 * 1000;
+
+function istMidnight(ts){
+  const day = Math.floor((ts + IST_OFFSET_MS) / 86400000);
+  return day * 86400000 - IST_OFFSET_MS;
+}
+function nearestScheduledAnchor(ts){
+  const m = istMidnight(ts);
+  const k = Math.round((ts - m) / RUN_BIN_MS);
+  return m + k * RUN_BIN_MS;
+}
+function setSnapModeFromURLOrStorage(){
+  const url = new URL(window.location.href);
+  const q = (url.searchParams.get('mode') || '').toLowerCase();
+  if (q === 'auto' || q === 'prod' || q === 'test') localStorage.setItem('snapMode', q);
+  SNAP_MODE = (localStorage.getItem('snapMode') || 'auto');
+}
+function computeDynamicGrace(){
+  const now = Date.now();
+  const from = now - 48 * 3600 * 1000;
+  const finals = auditData.filter(e =>
+    e.event === 'site_check' &&
+    (e.status === 'SUCCESS' || e.status === 'FAILED') &&
+    parseTsMs(e.ts) >= from
+  );
+  if (!finals.length) return 0;
+  let near = 0, total = 0;
+  for (const e of finals){
+    const ts = parseTsMs(e.ts);
+    const d = Math.abs(ts - nearestScheduledAnchor(ts));
+    total++;
+    if (d <= 15 * 60 * 1000) near++;
+  }
+  const r = near / total;
+  if (r >= 0.60) return 15 * 60 * 1000;
+  if (r >= 0.35) return  7 * 60 * 1000;
+  return 0;
+}
+
+// CHANGED: always snap to NEAREST IST anchor
+function runSnapBin(ts){
+  const m = istMidnight(ts);
+  const k = Math.round((ts - m) / RUN_BIN_MS);
+  return m + k * RUN_BIN_MS;
+}
+
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', function(){
+  loadDashboard();
+  refreshInterval = setInterval(refreshData, 12*60*1000);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { filterSites('all'); clearSearch(); }
+});
+
+async function loadDashboard(){
+  try{
+    await loadAuditData();
+    setSnapModeFromURLOrStorage();
+    DYNAMIC_GRACE_MS = computeDynamicGrace();
+
+    try{ ackStore = JSON.parse(localStorage.getItem('ackAlerts')||'{}'); }catch{ ackStore = {}; }
+
+    analyzeData();
+    populateRegionFilter();
+    bindRegionControls();
+    renderDashboard();
+    updateLastRefresh();
+    updateVmPill();
+
+  }catch(err){
+    console.error(err);
+    showError('Failed to load monitoring data. Please check if monitoring_audit.log.jsonl exists.');
+  }
+}
+
+async function loadAuditData(){
+  try{
+    const res = await fetch(`monitoring_audit.log.jsonl?v=${V}`, { cache: 'no-store' });
+
+    if(!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const text = await res.text();
+
+    const lines = text.trim().split('\n');
+    auditData = lines
+      .filter(line => line.trim())
+      .map(line => { try { return JSON.parse(line); } catch { return null; } })
+      .filter(e => e && e.event && e.ts)
+      .sort((a,b) => parseTsMs(a.ts) - parseTsMs(b.ts));
+
+    buildLoadedIndex();
+  }catch{
+    // demo fallback
+    auditData = generateDemoData();
+    buildLoadedIndex();
+  }
+}
+
+function generateDemoData(){
+  const now = new Date();
+  const sites = Array.from({length: 36}, (_,i)=>`site-${i+1}`);
+  const tlds = ['.com','.de','.it','.co.uk','.com.au','.in','.fr','.es','.ch','.nl','.be','.pl'];
+  const data = [];
+  for(let run=0; run<12; run++){
+    const runTime = new Date(now.getTime() - run*12*60*1000);  // 12 minutes
+    sites.forEach((site, idx)=>{
+      const suffix = tlds[idx % tlds.length];
+      const host = `www.${site}${suffix}`;
+      const siteId = `https://${host}`;
+      data.push({ts:new Date(runTime.getTime()+Math.random()*1000).toISOString(),event:'site_check',site_id:siteId,site_name:site,status:'START',attempt:1});
+      const base = 0.9 + Math.random()*1.2;
+      const loadTime = base + (Math.random()*0.8) + (run===0 && Math.random()<0.08? 1.4:0);
+      data.push({ts:new Date(runTime.getTime()+2000+Math.random()*1000).toISOString(),event:'site_check',site_id:siteId,site_name:site,status:'LOADED',load_time_s:loadTime,attempt:1});
+      const success = Math.random()>0.06;
+      data.push({ts:new Date(runTime.getTime()+3000+Math.random()*1000).toISOString(),event:'site_check',site_id:siteId,site_name:site,status:success?'SUCCESS':'FAILED',attempt:1});
+    });
+  }
+  return data;
+}
+// === VM-aware helpers ===
+
+// pick normalized timing when available; else raw load_time_s
+function _pickVmAwareLoad(e){
+  // accept both "load_time_vm_norm_s" and "load_time_vm_norm" just in case
+  const vmn = (typeof e.load_time_vm_norm_s === 'number')
+                ? e.load_time_vm_norm_s
+                : (typeof e.load_time_vm_norm === 'number' ? e.load_time_vm_norm : null);
+  if (vmn != null && isFinite(vmn) && vmn > 0) return vmn;
+
+  const raw = (typeof e.load_time_s === 'number') ? e.load_time_s : null;
+  return (raw != null && isFinite(raw) && raw > 0) ? raw : null;
+}
+
+
+
+// ===== LOADED index + matching (with sanitization) =====
+function sanitizeLoad(x){
+  if (typeof x !== 'number' || !isFinite(x)) return null;
+  if (x < 0) return null;
+  return Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, x));
+}
+function buildLoadedIndex(){
+  loadedBySite = new Map();
+  const loaded = auditData.filter(e =>
+    e.event === 'site_check' &&
+    e.status === 'LOADED' &&
+    (_pickVmAwareLoad(e) !== null)
+  );
+  for (const e of loaded){
+    const k = e.site_id;
+    const ts = parseTsMs(e.ts);
+    const eff = _pickVmAwareLoad(e);
+    const sanitized = sanitizeLoad(eff);
+    if (sanitized === null) continue;
+    let arr = loadedBySite.get(k);
+    if (!arr){ arr = []; loadedBySite.set(k, arr); }
+    arr.push({ t: ts, attempt: e.attempt, load: sanitized });
+  }
+}
+  
+function matchLoaded(siteId, attempt, finalTsMs, windowMs=30000){
+  const arr = loadedBySite.get(siteId);
+  if (!arr || !arr.length) return null;
+  let lo=0, hi=arr.length-1, idx=-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    if(arr[mid].t<=finalTsMs){ idx=mid; lo=mid+1; } else { hi=mid-1; }
+  }
+  for (let i=Math.max(0, idx-2); i<=Math.min(arr.length-1, idx+2); i++){
+    const e = arr[i];
+    if (e.attempt===attempt && Math.abs(e.t-finalTsMs)<=windowMs) return e.load;
+  }
+  return null;
+}
+
+// ===== Baseline maturity helper =====
+function isBaselineMature(b){
+  if (!b || b.is_single_run) return false;
+  if (b.baseline_type === 'time_based') return true;
+  if (b.baseline_type === 'run_based') {
+    return (b.load_time_data_points >= MIN_BASELINE_POINTS &&
+            b.total_checks >= MIN_BASELINE_POINTS &&
+            b.data_completeness >= 0.6);
+  }
+  return false;
+}
+/// --- Dedup & "hide base when localized exists" helpers ---
+
+// normalize host so comparisons are reliable (strip leading www.)
+function canonicalHost(h){
+  h = String(h||'').toLowerCase();
+  return h.replace(/^www\./,'');
+}
+
+// prefer non-Global card, then more checks, then newer, then better completeness
+function scoreCardForDedup(x){
+  const nonGlobal = (x.region && x.region !== 'Global') ? 1 : 0;
+  const t = new Date(x.last_check || 0).getTime() || 0;
+  const checks = x.total_checks || 0;
+  const comp = x.curr_data_completeness || 0;
+  return nonGlobal*1e12 + checks*1e8 + t*1 + comp*1e5;
+}
+
+// collapse exact same *canonical* host
+function collapseDuplicateHosts(list){
+  const best = new Map(); // canonical host -> best site object
+  for (const s of list){
+    const hostKey = canonicalHost(getHostname(s.site_id));
+    const prev = best.get(hostKey);
+    if (!prev || scoreCardForDedup(s) > scoreCardForDedup(prev)){
+      best.set(hostKey, s);
+    }
+  }
+  return Array.from(best.values());
+}
+
+// locale patterns like "fr", "nl", "fr-be", "en_gb"
+function isLocaleLabel(label){
+  return /^[a-z]{2}(?:[-_][a-z]{2})?$/i.test(label || '');
+}
+// require xx-yy for the *suffix* form so `.uk` isn’t mistaken as a locale
+function hasStrictLocaleTail(label){
+  return /^[a-z]{2}[-_][a-z]{2}$/i.test(label || '');
+}
+
+// if host ends with a strict locale label (e.g., cotedor.com.fr-be), return the base (cotedor.com)
+function baseWithoutLocaleSuffix(host){
+  const parts = (host||'').split('.');
+  if (parts.length < 2) return null;
+  const tail = parts[parts.length-1];
+  if (hasStrictLocaleTail(tail)) return parts.slice(0, -1).join('.');
+  return null;
+}
+
+// if host starts with a locale subdomain (e.g., be.cotedor.com), return the base (cotedor.com or cotedor.co.uk)
+function baseFromLocaleSubdomain(host){
+  const parts = (host||'').split('.');
+  if (parts.length < 2) return null;
+  let i = 0;
+  if (parts[0] === 'www') i = 1; // skip www
+  const first = parts[i];
+  if (isLocaleLabel(first)) return parts.slice(i+1).join('.');
+  return null;
+}
+
+// compute a grouping key so localized variants map to the same "base" bucket
+function baseKeyFromHost(host){
+  const h = canonicalHost(host);
+  return baseWithoutLocaleSuffix(h) || baseFromLocaleSubdomain(h) || h;
+}
+
+// hide the base Global card when any localized sibling exists (suffix/subdomain or path -> via region)
+function dropBaseWhenLocalizedExists(list){
+  const groups = new Map(); // baseKey -> items[]
+  for (const s of list){
+    const host = canonicalHost(getHostname(s.site_id));
+    const key = baseKeyFromHost(host);
+    (groups.get(key) || groups.set(key, []).get(key)).push(s);
+  }
+
+  const out = [];
+  for (const items of groups.values()){
+    const hasLocalized = items.some(x => (x.region && x.region !== 'Global'));
+    if (!hasLocalized) {
+      out.push(...items);
+      continue;
+    }
+    const keep = items.filter(x => (x.region && x.region !== 'Global'));
+    if (keep.length) out.push(...keep);
+    else {
+      // safety: if everything somehow reads Global, keep the "best" one
+      out.push(items.reduce((best, s) => !best || scoreCardForDedup(s) > scoreCardForDedup(best) ? s : best, null));
+    }
+  }
+  return out;
+}
+
+
+
+
+function analyzeData(){
+  const baselines = calculateBaselines();
+  const rawSitesObj = analyzeCurrentPerformance(baselines);
+
+// Keep every site; no dedup/hiding
+const sites = rawSitesObj;
+
+
+  // store as before
+  window.baselines = baselines;
+  window.sitesData = sites;
+
+  // rebuild region index (unchanged)
+  const regionIndex = {};
+  Object.values(sites).forEach(s=>{
+    const r = s.region || 'Global';
+    (regionIndex[r] ||= []).push(s);
+  });
+  window.regionIndex = regionIndex;
+}
+
+
+// ==================== BASELINES =========================
+function calculateBaselines() {
+  const baselines = {};
+  const nowMs = Date.now();
+  const windowsDays = [2, 1, 0.5];  // was [7, 3, 1]
+  const MIN_RUNS_TOTAL = 3;
+  const MIN_DATA_COMPLETENESS = 0.6;
+
+  const finals = auditData.filter(e => e.event === 'site_check' && (e.status === 'SUCCESS' || e.status === 'FAILED'));
+  const bySite = {};
+  finals.forEach(e => (bySite[e.site_id] ||= []).push(e));
+
+  Object.keys(bySite).forEach(siteId => {
+    const entries = bySite[siteId].slice().sort((a,b) => parseTsMs(a.ts) - parseTsMs(b.ts));
+    let baseline = null;
+
+    for (const days of windowsDays) {
+      const startCutoffMs = nowMs - days*24*60*60*1000;
+      const endCutoffMs   = nowMs - FRESH_EXCLUDE_HOURS*60*60*1000;
+      const histEntries = entries.filter(e => {
+        const tMs = parseTsMs(e.ts);
+        return tMs >= startCutoffMs && tMs < endCutoffMs;
+      });
+      if (histEntries.length >= 2) {
+        const loadTimes = [];
+        let successes = 0, total = 0;
+        histEntries.forEach(finalE => {
+          total++;
+          if (finalE.status === 'SUCCESS') successes++;
+          const lt = matchLoaded(finalE.site_id, finalE.attempt, parseTsMs(finalE.ts));
+          if (typeof lt === 'number') loadTimes.push(lt);
+        });
+        const dataCompleteness = total ? loadTimes.length / total : 0;
+        if (total >= 2 && loadTimes.length >= 2 && dataCompleteness >= MIN_DATA_COMPLETENESS) {
+          baselines[siteId] = {
+            avg_load_time: avg(loadTimes),
+            load_time_std: stdDev(loadTimes),
+            success_rate: (successes / total) * 100,
+            total_checks: total,
+            load_time_data_points: loadTimes.length,
+            data_completeness: dataCompleteness,
+            baseline_window_days: days,
+            is_single_run: false,
+            baseline_type: 'time_based'
+          };
+          baseline = baselines[siteId];
+          break;
+        }
+      }
+    }
+
+    if (!baseline && entries.length >= MIN_RUNS_TOTAL) {
+      const baselineRuns = entries.slice(0, MIN_RUNS_FOR_RUN_BASELINE);
+      const loadTimes = [];
+      let successes = 0, total = 0;
+      baselineRuns.forEach(finalE => {
+        total++;
+        if (finalE.status === 'SUCCESS') successes++;
+        const lt = matchLoaded(finalE.site_id, finalE.attempt, parseTsMs(finalE.ts));
+        if (typeof lt === 'number') loadTimes.push(lt);
+      });
+      const dataCompleteness = total ? loadTimes.length / total : 0;
+      if (total >= 2 && loadTimes.length >= 1 && dataCompleteness >= 0.5) {
+        baselines[siteId] = {
+          avg_load_time: avg(loadTimes),
+          load_time_std: stdDev(loadTimes),
+          success_rate: (successes / total) * 100,
+          total_checks: total,
+          load_time_data_points: loadTimes.length,
+          data_completeness: dataCompleteness,
+          baseline_window_days: 'first_N_runs',
+          is_single_run: (baselineRuns.length < 2),
+          baseline_type: 'run_based'
+        };
+        baseline = baselines[siteId];
+      }
+    }
+
+    if (!baselines[siteId] && entries.length > 0) {
+      const e = entries[0];
+      const lt = matchLoaded(e.site_id, e.attempt, parseTsMs(e.ts));
+      if (typeof lt === 'number') {
+        baselines[siteId] = {
+          avg_load_time: lt,
+          load_time_std: 0,
+          success_rate: (e.status === 'SUCCESS') ? 100 : 0,
+          total_checks: 1,
+          load_time_data_points: 1,
+          data_completeness: 1.0,
+          baseline_window_days: 'single_run',
+          is_single_run: true,
+          baseline_type: 'single_run'
+        };
+      }
+    }
+  });
+
+  return baselines;
+}
+
+function pctChange(from,to){ if(from===0) return 0; return ((to-from)/from)*100; }
+
+// ===== Early warning: 3 consecutive +25% runs =====
+function detectEarlyWarning(series){
+  if (!Array.isArray(series) || series.length === 0) return {flag:false};
+  const bins = new Map();
+  for (const s of series) {
+    const k = runSnapBin(s.t);
+    let b = bins.get(k);
+    if (!b) { b = {sum:0, n:0}; bins.set(k, b); }
+    b.sum += s.load; b.n += 1;
+  }
+  const ordered = Array.from(bins.entries()).sort((a,b)=>a[0]-b[0]).map(([k,v])=>({bin:k, avg:v.sum/v.n}));
+  if (ordered.length < EW_CONSEC) return {flag:false};
+  let streak = 1;
+  let lastA = ordered[0].avg;
+  for (let i=1;i<ordered.length;i++){
+    const a = ordered[i].avg;
+    if (a >= lastA * EW_RATIO) { streak++; if (streak >= EW_CONSEC) {
+        const tail = ordered.slice(i-EW_CONSEC+1, i+1).map(x=>x.avg);
+        return {flag:true, tail};
+      }}
+    else { streak = 1; }
+    lastA = a;
+  }
+  return {flag:false};
+}
+
+// ===== Current performance (72h window) =====
+function analyzeCurrentPerformance(baselines){
+  const sites = {};
+  const recentCutoffMs = Date.now() - CURRENT_WINDOW_HOURS*60*60*1000;
+
+  const finals = auditData.filter(e =>
+    e.event==='site_check' &&
+    (e.status==='SUCCESS'||e.status==='FAILED') &&
+    parseTsMs(e.ts) >= recentCutoffMs
+  );
+
+  finals.forEach(entry=>{
+    (sites[entry.site_id] ||= {
+      site_id: entry.site_id,
+      site_name: entry.site_name || entry.site_id,
+      total_checks: 0, successful_checks: 0, failed_checks: 0,
+      load_times: [], load_series: [], last_status: 'UNKNOWN', last_check: entry.ts
+    });
+    sites[entry.site_id].region_hint = entry.region_hint || sites[entry.site_id].region_hint || null;
+
+    const site = sites[entry.site_id];
+    site.base_url = entry.base_url || site.base_url || '';
+
+    site.total_checks++;
+    if (entry.status==='SUCCESS') site.successful_checks++; else site.failed_checks++;
+
+    const tsMs = parseTsMs(entry.ts);
+    const lt = matchLoaded(entry.site_id, entry.attempt, tsMs);
+    if (typeof lt === 'number') {
+      site.load_times.push(lt);
+      site.load_series.push({ t: tsMs, load: lt });
+    }
+
+    site.last_status = entry.status;
+    site.last_check = entry.ts;
+  });
+
+  Object.keys(sites).forEach(id=>{
+    const s = sites[id];
+    s.region = regionFromUrl(s.base_url || s.site_id);
+
+
+
+    s.success_rate   = s.total_checks ? (s.successful_checks/s.total_checks)*100 : 0;
+    s.avg_load_time  = s.load_times.length ? avg(s.load_times) : 0;
+    s.min_load_time  = s.load_times.length ? Math.min(...s.load_times) : 0;
+    s.max_load_time  = s.load_times.length ? Math.max(...s.load_times) : 0;
+
+    s.outage = (s.success_rate === 0 && s.load_times.length === 0 && s.total_checks >= 2);
+    s.curr_data_completeness = s.total_checks ? (s.load_times.length / s.total_checks) : 0;
+
+    const b = baselines[id];
+    s.baseline = b || null;
+    s.baseline_mature = isBaselineMature(s.baseline);
+
+    s.load_time_trend = 0; s.success_rate_trend = 0;
+    if (b && !b.is_single_run){
+      if (b.avg_load_time>0) s.load_time_trend = pctChange(b.avg_load_time, s.avg_load_time);
+      s.success_rate_trend = s.success_rate - b.success_rate;
+    }
+
+    s.latency = classifyLatency(b, s.load_times, { sloP95: 3.0 });
+
+    const successScore = s.success_rate;
+    const loadScore = Math.max(0, 100 - (s.latency.p95*12));
+    s.performance_score = (successScore*0.6) + (loadScore*0.4);
+
+    s.stability_score = s.load_times.length>1
+      ? Math.max(0, 100 - (stdDev(s.load_times)/(s.avg_load_time||1)*100))
+      : 100;
+
+    const ew = detectEarlyWarning(s.load_series);
+    s.early_warning = ew.flag;
+    s.ew_tail = ew.tail || null;
+
+    if (s.outage) {
+      s.status = 'critical';
+    } else if (s.baseline_mature) {
+      if (s.success_rate < 85 || s.latency.tier === 'critical') s.status = 'critical';
+      else if (s.success_rate < 95 || s.latency.tier === 'warning') s.status = 'warning';
+      else s.status = 'healthy';
+    } else {
+      if (s.success_rate < 85) s.status = 'critical';
+      else if (s.latency.sloBreach) s.status = 'warning';
+      else s.status = 'healthy';
+    }
+  });
+
+  return sites;
+}
+
+// ===== Latency classifier =====
+function classifyLatency(baseline, times, opts = {}) {
+  const samples = Array.isArray(times) ? times.filter(x => typeof x === 'number' && isFinite(x)) : [];
+  const avgNow = avg(samples);
+  const p95Now = percentile(samples, 95);
+
+  const cfg = {
+    sloP95: 3.0,
+    relWarn: 0.30, relCrit: 0.60,
+    absWarn: null, absCrit: null,
+    zWarn: 1.8, zCrit: 2.8,
+    evidenceFrac: 0.35,
+    minSamples: 6,
+    outlierFactorWarn: 2.0,
+    outlierFactorCrit: 2.5,
+    outlierMinCount: 1,
+    ...opts
+  };
+
+  const baseAvg = (baseline && typeof baseline.avg_load_time === 'number')
+    ? baseline.avg_load_time
+    : (isFinite(avgNow) ? avgNow : 0);
+
+  const slo = cfg.sloP95;
+  const absW = cfg.absWarn ?? Math.max(0.20, 0.15 * Math.max(baseAvg, 0.8), 0.10 * slo);
+  const absC = cfg.absCrit ?? Math.max(0.40, 0.30 * Math.max(baseAvg, 0.8), 0.20 * slo);
+
+  const abs = avgNow - baseAvg;
+  const rel = baseAvg > 0 ? (avgNow - baseAvg) / baseAvg : 0;
+  const z   = (baseline && baseline.load_time_std > 0) ? (avgNow - baseAvg) / baseline.load_time_std : 0;
+
+  const evidWarn = samples.length ? samples.filter(x => x > baseAvg + absW).length / samples.length : 0;
+  const evidCrit = samples.length ? samples.filter(x => x > baseAvg + absC).length / samples.length : 0;
+
+  const sloBreach = p95Now > slo;
+
+  const maxNow = samples.length ? Math.max(...samples) : 0;
+  const outlierWarnThreshold = slo * cfg.outlierFactorWarn;
+  const outlierCritThreshold = slo * cfg.outlierFactorCrit;
+  let outlierCountWarn = 0, outlierCountCrit = 0;
+  if (samples.length) {
+    for (const x of samples) {
+      if (x >= outlierWarnThreshold) outlierCountWarn++;
+      if (x >= outlierCritThreshold) outlierCountCrit++;
+    }
+  }
+  const outlierWarn = outlierCountWarn >= cfg.outlierMinCount;
+  const outlierCrit = outlierCountCrit >= cfg.outlierMinCount;
+
+  const condWarn = ((abs >= absW) ? 1 : 0) + ((rel >= cfg.relWarn) ? 1 : 0) + ((z >= cfg.zWarn) ? 1 : 0);
+  const condCrit = ((abs >= absC) ? 1 : 0) + ((rel >= cfg.relCrit) ? 1 : 0) + ((z >= cfg.zCrit) ? 1 : 0);
+
+  const hasSamples = samples.length >= cfg.minSamples;
+  const warn = (hasSamples && sloBreach &&
+              (condWarn >= 2 || (condWarn >= 1 && evidWarn >= cfg.evidenceFrac)))
+              || outlierWarn;
+
+  const crit = (hasSamples && sloBreach &&
+              (condCrit >= 2 || (condCrit >= 1 && evidCrit >= cfg.evidenceFrac)))
+              || outlierCrit;
+
+  const tier = crit ? 'critical' : (warn ? 'warning' : 'ok');
+
+  return {
+    avg: avgNow,
+    p95: p95Now,
+    max: maxNow,
+    absDelta: abs,
+    relPct: rel * 100,
+    z,
+    sloBreach,
+    evidWarnFrac: evidWarn,
+    evidCritFrac: evidCrit,
+    condWarnCount: condWarn,
+    condCritCount: condCrit,
+    outlier: { warn: outlierWarn, crit: outlierCrit, countWarn: outlierCountWarn, countCrit: outlierCountCrit,
+              thrWarn: outlierWarnThreshold, thrCrit: outlierCritThreshold },
+    tier,
+    thresholds: { sloP95: slo, absW, absC, relW: cfg.relWarn, relC: cfg.relCrit, zW: cfg.zWarn, zC: cfg.zCrit,
+                  evidenceFrac: cfg.evidenceFrac, minSamples: cfg.minSamples }
+  };
+}
+
+// ===== Region helpers (UI/data) =====
+function getAllRegions(){
+  const idx = window.regionIndex || {};
+  const regions = Object.keys(idx).sort();
+  return ['All', ...regions];
+}
+function populateRegionFilter(){
+  const sel = document.getElementById('region-filter');
+  if (!sel) return;
+  sel.innerHTML = '';
+  getAllRegions().forEach(r=>{
+    const o = document.createElement('option'); o.value=r; o.textContent=r; sel.appendChild(o);
+  });
+  sel.value = currentRegion;
+  if (!sel._bound){
+    sel.addEventListener('change', ()=>{
+      currentRegion = sel.value || 'All';
+      selectedSiteIds = [];
+      selectedRegionKeys = currentRegion !== 'All' ? [currentRegion] : [];
+      const dl = document.getElementById('sites-list'); if (dl) dl.innerHTML='';
+      renderDashboard();
+      renderRegionDrilldown();
+      autoSelectIssueSites();
+    });
+    sel._bound = true;
+  }
+}
+function clearRegion(){
+  currentRegion = 'All';
+  const sel = document.getElementById('region-filter'); if (sel) sel.value = 'All';
+  selectedSiteIds = [];
+  selectedRegionKeys = [];
+  const dl = document.getElementById('sites-list'); if (dl) dl.innerHTML='';
+  renderDashboard();
+}
+
+// Region controls
+function bindRegionControls(){
+  const rankSel = document.getElementById('rank-by');
+  const topnSel = document.getElementById('topn');
+  const toggleBtn = document.getElementById('toggle-list');
+
+  if (rankSel && !rankSel._bound){
+    rankSel.addEventListener('change', ()=>{
+      regionRankBy = rankSel.value;
+      renderRegionOverview();
+      autoSelectIssueSites();
+    });
+    rankSel._bound = true;
+  }
+  if (topnSel && !topnSel._bound){
+    topnSel.addEventListener('change', ()=>{
+      const v = topnSel.value;
+      regionTopN = (v === 'all') ? 'all' : parseInt(v, 10);
+      renderRegionOverview();
+    });
+    topnSel._bound = true;
+  }
+  if (toggleBtn && !toggleBtn._bound){
+    toggleBtn.addEventListener('click', ()=>{
+      regionListAll = !regionListAll;
+      toggleBtn.textContent = regionListAll ? 'Show top' : 'Show all';
+      renderRegionOverview();
+    });
+    toggleBtn._bound = true;
+  }
+}
+
+function getSitesFilteredByRegion(allSites){
+  if (currentRegion==='All') return allSites;
+  return allSites.filter(s=> (s.region||'Global') === currentRegion);
+}
+
+function buildRegionAgg(sites){
+  const agg = {};
+  sites.forEach(s=>{
+    const r = s.region || 'Global';
+    (agg[r] ||= {count:0, healthy:0, warning:0, critical:0, p95s:[], avgLoads:[]});
+    agg[r].count++;
+    agg[r][s.status] = (agg[r][s.status]||0) + 1;
+    if (typeof s.latency?.p95 === 'number') agg[r].p95s.push(s.latency.p95);
+    if (typeof s.avg_load_time === 'number') agg[r].avgLoads.push(s.avg_load_time);
+  });
+  return agg;
+}
+
+// ===== Rendering =====
+function renderDashboard(){
+  updateKPIs();
+  renderRegionOverview();
+  applyCurrentFilter();
+  renderAlerts();
+  renderTrends();
+}
+
+function updateKPIs(){
+  const obj = window.sitesData || {}; 
+  let list = Object.values(obj); 
+  list = getSitesFilteredByRegion(list);
+  if(!list.length) return;
+
+  const avgHealth = avg(list.map(s=>s.performance_score));
+  const avgSucc = avg(list.map(s=>s.success_rate));
+  const avgLoad = avg(list.map(s=>s.avg_load_time));
+  const crit = list.filter(s=>s.status==='critical').length;
+  const warn = list.filter(s=>s.status==='warning').length;
+  const healthy = list.filter(s=>s.status==='healthy').length;
+
+  let sTr=0,lTr=0,n=0;
+  list.forEach(s=>{ if(s.baseline && !s.baseline.is_single_run){ sTr+=s.success_rate_trend; lTr+=s.load_time_trend; n++; }});
+  if(n){ sTr/=n; lTr/=n; }
+
+  document.getElementById('health-score').textContent = `${avgHealth.toFixed(0)}%`;
+  document.getElementById('total-sites').textContent = list.length;
+  document.getElementById('success-rate').textContent = `${avgSucc.toFixed(1)}%`;
+  document.getElementById('avg-load-time').textContent = `${avgLoad.toFixed(2)}s`;
+  document.getElementById('critical-count').textContent = crit;
+  document.getElementById('warning-count').textContent = warn;
+  const healthyEl = document.getElementById('healthy-count'); if (healthyEl) healthyEl.textContent = healthy;
+
+  const healthTrendEl = document.getElementById('health-trend');
+  if (crit===0 && warn===0){ healthTrendEl.textContent='✅ Excellent'; healthTrendEl.className='kpi-trend trend-up'; }
+  else if (crit>0){ healthTrendEl.textContent='🚨 Critical Issues'; healthTrendEl.className='kpi-trend trend-down'; }
+  else { healthTrendEl.textContent='⚠️ Needs Attention'; healthTrendEl.className='kpi-trend trend-neutral'; }
+
+  const successTrendEl = document.getElementById('success-trend');
+  const loadTrendEl = document.getElementById('load-trend');
+  if(n){
+    if (sTr>2){ successTrendEl.textContent=`📈 +${sTr.toFixed(1)}%`; successTrendEl.className='kpi-trend trend-up'; }
+    else if (sTr<-2){ successTrendEl.textContent=`📉 ${sTr.toFixed(1)}%`; successTrendEl.className='kpi-trend trend-down'; }
+    else { successTrendEl.textContent='📊 Stable'; successTrendEl.className='kpi-trend trend-neutral'; }
+
+    if (lTr>5){ loadTrendEl.textContent=`📈 +${lTr.toFixed(1)}%`; loadTrendEl.className='kpi-trend trend-down'; }
+    else if (lTr<-5){ loadTrendEl.textContent=`📉 ${lTr.toFixed(1)}%`; loadTrendEl.className='kpi-trend trend-up'; }
+    else { loadTrendEl.textContent='📊 Stable'; loadTrendEl.className='kpi-trend trend-neutral'; }
+  } else {
+    successTrendEl.textContent='📊 Initial'; successTrendEl.className='kpi-trend trend-neutral';
+    loadTrendEl.textContent='📊 Initial'; loadTrendEl.className='kpi-trend trend-neutral';
+  }
+
+  const badge = document.getElementById('overall-badge');
+  if (badge) {
+    let cls = 'status-healthy', label = '✅ HEALTHY';
+    if (crit > 0) { cls = 'status-critical'; label = '🚨 CRITICAL'; }
+    else if (warn > 0) { cls = 'status-warning'; label = '⚠️ WARNING'; }
+    const regionTag = (currentRegion==='All') ? '' : ` — ${currentRegion}`;
+    badge.className = `status-badge ${cls}`;
+    badge.textContent = `${label}${regionTag} | ${avgHealth.toFixed(1)}% Health`;
+  }
+}
+
+// ===== Region Overview (Top-N + Others) =====
+const valueLabelPlugin = {
+  id:'valueLabel',
+  afterDatasetsDraw(chart){
+    const {ctx} = chart;
+    const ds = chart.data.datasets[0];
+    if (!ds) return;
+    ctx.save();
+    ctx.font = '12px system-ui, -apple-system, Segoe UI';
+    ctx.fillStyle = '#334155';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    chart.getDatasetMeta(0).data.forEach((bar, i)=>{
+      const v = ds.data[i];
+      if (v == null) return;
+      const text = (typeof v === 'number' && !isNaN(v) && chart.options?.metaRankBy==='p95')
+        ? v.toFixed(2)+'s' : String(v);
+      ctx.fillText(text, bar.x, bar.y - 4);
+    });
+    ctx.restore();
+  }
+};
+
+// SloLinePlugin:
+const sloLinePlugin = {
+id: 'sloLine',
+// draw after bars, before your value labels so labels stay on top
+afterDatasetsDraw(chart) {
+  if (chart.options?.metaRankBy !== 'p95') return;
+
+  const y = chart.scales.y.getPixelForValue(3.0); // numeric axis is Y
+  const { ctx, chartArea } = chart;
+  if (!isFinite(y)) return;
+
+  ctx.save();
+
+  // dashed red line across the chart area
+  ctx.strokeStyle = '#ef4444';
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(chartArea.left, y);
+  ctx.lineTo(chartArea.right, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // right-aligned label with a soft background for readability
+  const label = 'SLO 3.0s';
+  ctx.font = '11px system-ui, -apple-system, Segoe UI';
+  const textW = ctx.measureText(label).width;
+  const padX = 6, padY = 3;
+
+  const xRight = chartArea.right - 6;   // tuck into the right padding
+  const yLabel = y - 8;                 // slightly above the line
+
+  // background pill
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillRect(xRight - textW - padX*2, yLabel - 11 - padY, textW + padX*2, 14 + padY*2);
+
+  // text
+  ctx.fillStyle = '#ef4444';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(label, xRight - padX, yLabel);
+
+  ctx.restore();
+}
+};
+
+
+
+
+function renderRegionOverview(){
+  const allSites = Object.values(window.sitesData||{});
+  const agg = {};
+  allSites.forEach(s=>{
+    const r = s.region || 'Global';
+    (agg[r] ||= {count:0, p95s:[], ok:0, warn:0, crit:0});
+    agg[r].count++;
+    if (typeof s?.latency?.p95 === 'number') agg[r].p95s.push(s.latency.p95);
+    if (s.status==='healthy') agg[r].ok++;
+    if (s.status==='warning') agg[r].warn++;
+    if (s.status==='critical') agg[r].crit++;
+  });
+
+  let ranked = Object.entries(agg).map(([r,v])=>{
+    const p95 = v.p95s.length ? avg(v.p95s) : 0;
+    const issues = (v.warn||0) + (v.crit||0);
+    return { r, count:v.count, p95, issues, ok:v.ok, warn:v.warn, crit:v.crit };
+  });
+
+  if (regionRankBy === 'p95'){
+    ranked.sort((a,b)=> (b.p95||0) - (a.p95||0));
+  } else if (regionRankBy === 'issues'){
+    ranked.sort((a,b)=> (b.issues||0) - (a.issues||0));
+  } else {
+    ranked.sort((a,b)=> (b.count||0) - (a.count||0));
+  }
+
+  const topNCount = (regionTopN === 'all') ? ranked.length : Math.min(ranked.length, regionTopN||10);
+  const chartArr = ranked.slice(0, topNCount);
+  const rest = ranked.slice(topNCount);
+  othersCache = rest;
+  if (rest.length){
+    const others = {
+      r:'Others', isOthers:true,
+      count: rest.reduce((s,x)=>s+x.count,0),
+      p95: rest.reduce((s,x)=>s+(x.p95||0),0) / rest.length,
+      issues: rest.reduce((s,x)=>s+(x.issues||0),0),
+      ok: rest.reduce((s,x)=>s+(x.ok||0),0),
+      warn: rest.reduce((s,x)=>s+(x.warn||0),0),
+      crit: rest.reduce((s,x)=>s+(x.crit||0),0)
+    };
+    chartArr.push(others);
+  }
+  const listArr  = regionListAll ? ranked : chartArr;
+
+  const labels = chartArr.map(x=>x.r);
+  let datasetLabel = 'Sites';
+  let datasetData  = chartArr.map(x=>x.count);
+  if (regionRankBy === 'p95'){ datasetLabel = 'p95 (s)'; datasetData = chartArr.map(x=> (x.p95 || 0)); }
+  else if (regionRankBy === 'issues'){ datasetLabel = 'Issues (⚠️/🚨)'; datasetData = chartArr.map(x=> (x.issues || 0)); }
+
+  const colors = labels.map((_,i)=>colorFor(i));
+  const ctx = document.getElementById('region-bars').getContext('2d');
+  if (regionBarsChart) regionBarsChart.destroy();
+  regionBarsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: datasetLabel,
+        data: datasetData,
+        backgroundColor: colors,
+        borderColor: 'rgba(255,255,255,0.9)',
+        borderWidth: 1.2,
+        borderSkipped: false,
+        borderRadius: 8,
+        categoryPercentage: 0.72,
+        barPercentage: 0.72
+      }]
+    },
+    options: {
+      metaRankBy: regionRankBy,
+      animation: false,
+      plugins: { legend: { display:false }, tooltip: { enabled:true } },
+      scales: {
+        x: {
+          ticks: { autoSkip:false, maxRotation:0 },
+          grid: { display:true, drawOnChartArea:true, color:'rgba(0,0,0,0.05)', lineWidth:1, offset:true }
+        },
+        y: {
+          beginAtZero: true,
+          grace: '10%',
+          grid: { drawBorder:false, color:'rgba(0,0,0,0.08)' }
+        }
+      },
+      onClick: (_, elements) => {
+        const el = elements?.[0]; if (!el) return;
+        const picked = labels[el.index];
+        if (picked === 'Others'){ showOthersModal(); return; }
+        const sel = document.getElementById('region-filter');
+        currentRegion = picked;
+        if (sel) sel.value = picked;
+        selectedSiteIds = [];
+        selectedRegionKeys = [picked];
+        const dl = document.getElementById('sites-list'); if (dl) dl.innerHTML='';
+        renderDashboard();
+        autoSelectIssueSites();
+      }
+    },
+    plugins: [sloLinePlugin, valueLabelPlugin]
+
+  });
+
+  const regionMini = document.getElementById('region-mini-list');
+  regionMini.innerHTML = listArr.map(v=>{
+    const p95Txt = v.p95 ? v.p95.toFixed(2) : '—';
+    return `<div class="region-row">
+      <div class="label">${v.r}</div>
+      <div>${v.count} sites · p95 ${p95Txt}s · ✅ ${v.ok} | ⚠️ ${v.warn} | 🚨 ${v.crit}</div>
+    </div>`;
+  }).join('');
+
+  renderRegionDrilldown();
+}
+function chipCapForAll(){
+  if (regionTopN === 'all') return Infinity;
+  const n = parseInt(regionTopN, 10);
+  return Number.isFinite(n) ? n : 60;
+}
+
+function renderRegionDrilldown(){
+  const lbl = document.getElementById('drilldown-region-label');
+  const wrap = document.getElementById('region-drilldown');
+  if (!lbl || !wrap) return;
+
+  let sites = Object.values(window.sitesData||{});
+  if (currentRegion !== 'All') {
+    sites = sites.filter(s=> (s.region||'Global') === currentRegion);
+  }
+  const sev = s => (s.status==='critical'?0 : s.status==='warning'?1 : 2);
+  sites.sort((a,b)=> sev(a)-sev(b) || (b?.latency?.p95||0) - (a?.latency?.p95||0));
+  const totalCount = sites.length;
+
+  if (currentRegion === 'All') {
+    const cap = chipCapForAll();
+    if (cap !== Infinity) sites = sites.slice(0, cap);
+  }
+  const shownCount = sites.length;
+  lbl.textContent = (currentRegion==='All')
+    ? `All (Top ${shownCount} of ${totalCount})`
+    : `${currentRegion} (${totalCount})`;
+
+  let badge = document.getElementById('drilldown-count-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.id = 'drilldown-count-badge';
+    badge.className = 'count-badge';
+    lbl.parentElement.appendChild(badge);
+  }
+  if (currentRegion === 'All') {
+    badge.textContent = `${shownCount} / ${totalCount}`;
+    const pct = Math.round((shownCount/Math.max(1,totalCount))*100);
+    badge.style.setProperty('--pct', pct + '%');
+    badge.style.display = 'inline-block';
+  } else {
+    badge.textContent = `${totalCount}`;
+    badge.style.setProperty('--pct', '100%');
+    badge.style.display = 'inline-block';
+  }
+
+  wrap.innerHTML = sites.map((s,idx)=>
+    `<span class="site-chip" title="Add to chart" onclick="addSiteToTrend(${JSON.stringify(s.site_id)})">
+
+      <b class="chip-rank">${idx+1}</b> ${esc(s.site_name)}
+    </span>`
+  ).join('');
+}
+
+function addSiteToTrend(id){
+  const s = (window.sitesData||{})[id];
+  if (!s) return;
+  if (!selectedSiteIds.includes(id)) {
+    if (selectedSiteIds.length >= 5) selectedSiteIds.shift();
+    selectedSiteIds.push(id);
+  }
+  setViewMode('trend');
+  setTrendGrouping('sites');
+  renderTrendChips();
+  updateTrendChart();
+}
+
+// ===== View toggle (trend | hex) =====
+function setViewMode(mode){
+  viewMode = mode;
+  document.getElementById('btn-trend').classList.toggle('active', mode==='trend');
+  document.getElementById('btn-hex').classList.toggle('active', mode==='hex');
+
+  document.getElementById('hex-legend').style.display = (mode==='hex' ? 'flex' : 'none');
+
+  const chartContainer = document.querySelector('.chart-container');
+  if (chartContainer) chartContainer.style.display = (mode==='hex' ? 'block' : 'none');
+
+  document.getElementById('trend-controls').style.display = (mode==='trend' ? 'flex' : 'none');
+  document.getElementById('trend-chart').style.display = (mode==='trend' ? 'block' : 'none');
+
+  renderTrends();
+}
+
+// ===== Trend grouping toggle =====
+function setTrendGrouping(g){
+  trendGrouping = g;
+  document.getElementById('group-sites').classList.toggle('active', g==='sites');
+  document.getElementById('group-regions').classList.toggle('active', g==='regions');
+  document.getElementById('trend-sites-controls').style.display = (g==='sites' ? 'flex' : 'none');
+  document.getElementById('trend-regions-controls').style.display = (g==='regions' ? 'flex' : 'none'); // will be set below
+  renderTrends();
+}
+
+// ===== Trend helpers =====
+function colorFor(i){ const hue=(i*57)%360; return `hsl(${hue} 70% 45%)`; }
+function binnedSeries(site, hours, metric){
+  const end = Date.now();
+  const start = end - hours*3600*1000;
+  const points = (site.load_series||[]).filter(p=>p.t>=start && p.t<=end);
+  const bins = new Map();
+  for (const p of points){
+    const k = runSnapBinChart(p.t);
+
+    let arr = bins.get(k); if(!arr){arr=[]; bins.set(k,arr);}
+    arr.push(p.load);
+  }
+  // IST-aligned grid + lookup
+  const timestamps = buildBinsRangeChart(start, end);
+
+  const series = timestamps.map(t=>{
+    const arr = bins.get(t) || [];
+
+
+    if(!arr.length) return null;
+    return metric==='avg' ? avg(arr) : percentile(arr, 95);
+  });
+  return {timestamps, series};
+}
+function binnedRegionSeries(region, hours, metric){
+  const end = Date.now();
+  const start = end - hours*3600*1000;
+  const members = (window.regionIndex||{})[region] || [];
+  const bins = new Map();
+  for (const s of members){
+    for (const p of (s.load_series||[])){
+      if (p.t<start || p.t>end) continue;
+      const k = runSnapBinChart(p.t);
+
+
+      let arr = bins.get(k); if(!arr){arr=[]; bins.set(k,arr);}
+      arr.push(p.load);
+    }
+  }
+  const timestamps = buildBinsRangeChart(start, end);
+
+  const series = timestamps.map(t=>{
+    const arr = bins.get(t) || [];
+
+
+    if(!arr.length) return null;
+    return metric==='avg' ? avg(arr) : percentile(arr, 95);
+  });
+  return {timestamps, series};
+}
+// Show minutes to avoid :00 vs :30 ambiguity
+function istLabel(ts){
+  return new Date(ts).toLocaleString('en-IN',{
+    timeZone:'Asia/Kolkata', hour12:false, month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit'
+  });
+}
+function buildSiteListForTrend(){
+  let all = Object.values(window.sitesData||{});
+  all = getSitesFilteredByRegion(all);
+  const sorted = all.slice().sort((a,b)=> (b.latency?.p95||0)-(a.latency?.p95||0));
+  const defaults = sorted.slice(0, Math.min(2, sorted.length)).map(s=>s.site_id);
+  return { all, defaults };
+}
+function buildRegionListForTrend(){
+  const idx = window.regionIndex||{};
+  const names = Object.keys(idx).sort();
+  if (currentRegion !== 'All') return { regions:names, defaults:[currentRegion] };
+  const scored = names.map(r=>{
+    const p95 = avg((idx[r]||[]).map(s=>s?.latency?.p95||0));
+    return {r,p95};
+  }).sort((a,b)=>b.p95-a.p95);
+  const defaults = scored.slice(0, Math.min(2, scored.length)).map(x=>x.r);
+  return { regions:names, defaults };
+}
+
+// ===== Rendering trends (trend | hex) =====
+function renderTrends(){
+  const container = document.querySelector('.chart-container');
+
+  if (viewMode === 'trend') {
+    const metricSel = document.getElementById('metric-select');
+    const windowSel = document.getElementById('window-select');
+    const metric = (metricSel?.value) || 'p95';
+    const hours  = parseInt((windowSel?.value) || '48', 10);
+
+    if (trendGrouping === 'sites') {
+      const dl = document.getElementById('sites-list');
+      if (dl && dl.childElementCount === 0) {
+        let all = Object.values(window.sitesData||{});
+        all = getSitesFilteredByRegion(all);
+        all.forEach(s=>{
+          const o = document.createElement('option'); o.value = s.site_name; o.label = s.site_id; dl.appendChild(o);
+        });
+        if (selectedSiteIds.length === 0) {
+          const { defaults } = buildSiteListForTrend();
+          selectedSiteIds = defaults;
+        }
+      }
+      const siteInput = document.getElementById('site-search');
+      if (siteInput && !siteInput._bound) {
+        siteInput.addEventListener('change', ()=>{
+          const val = siteInput.value.trim().toLowerCase();
+          let all = Object.values(window.sitesData||{});
+          all = getSitesFilteredByRegion(all);
+          const match = all.find(s =>
+            s.site_name.toLowerCase() === val || (s.site_id||'').toLowerCase() === val
+          ) || all.find(s =>
+            s.site_name.toLowerCase().includes(val) || (s.site_id||'').toLowerCase().includes(val)
+          );
+          if (match){
+            const auto = document.getElementById('auto-one')?.checked;
+            selectedSiteIds = auto ? [match.site_id] : [...new Set([...selectedSiteIds, match.site_id])].slice(-5);
+            renderTrendChips(); updateTrendChart();
+          }
+          siteInput.value='';
+        });
+        siteInput._bound = true;
+      }
+
+      document.getElementById('trend-sites-controls').style.display = 'flex';
+      document.getElementById('trend-regions-controls').style.display = 'none';
+      bindMetricWindowHandlers();
+      renderTrendChips();
+      updateTrendChart();
+      return;
+    }
+
+    // Regions grouping
+    const dlr = document.getElementById('regions-list');
+    if (dlr && dlr.childElementCount === 0) {
+      Object.keys(window.regionIndex||{}).sort().forEach(r=>{
+        const o = document.createElement('option'); o.value = r; dlr.appendChild(o);
+      });
+
+      if (selectedRegionKeys.length === 0) {
+        const { defaults } = buildRegionListForTrend();
+        selectedRegionKeys = defaults;
+      }
+    }
+    const rInput = document.getElementById('region-search');
+    if (rInput && !rInput._bound) {
+      rInput.addEventListener('change', ()=>{
+        const val = rInput.value.trim();
+        const known = Object.keys(window.regionIndex||{});
+        const match = known.find(x=>x.toLowerCase()===val.toLowerCase()) || known.find(x=>x.toLowerCase().includes(val.toLowerCase()));
+        if (match && !selectedRegionKeys.includes(match)) {
+          if (selectedRegionKeys.length >= 5) selectedRegionKeys.shift();
+          selectedRegionKeys.push(match);
+          renderRegionTrendChips();
+          updateRegionTrendChart();
+        }
+        rInput.value='';
+      });
+      rInput._bound = true;
+    }
+
+    document.getElementById('trend-sites-controls').style.display = 'none';
+    document.getElementById('trend-regions-controls').style.display = 'flex';
+    bindMetricWindowHandlers();
+    renderRegionTrendChips();
+    updateRegionTrendChart();
+    return;
+  }
+
+  // HEX view
+  if(!container){ return; }
+  const allSites = Object.values(window.sitesData || {});
+  const list = getSitesFilteredByRegion(allSites);
+  if (!list.length){
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:#6c757d;">No data available</div>';
+    return;
+  }
+  const sev = s => (s.status==='critical'?0 : s.status==='warning'?1 : 2);
+  const sites = list.slice().sort((a,b)=> sev(a)-sev(b) || a.site_name.localeCompare(b.site_name));
+
+  container.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'hex-grid';
+
+  sites.forEach(site=>{
+    const tile = document.createElement('div');
+    tile.className = 'hex ' + (site.status==='critical'?'critical':site.status==='warning'?'warning':'');
+    const titleML = `🏷️ ${site.site_name} [${site.region}]
+✅ Success: ${site.success_rate.toFixed(1)}%
+⏱️ p95: ${site.latency.p95.toFixed(2)}s
+📊 Status: ${site.status.toUpperCase()}
+🔍 Click for details`;
+    tile.setAttribute('title', titleML);
+    tile.setAttribute('data-title', titleML);
+    tile.setAttribute('aria-label', titleML);
+    tile.onclick = () => focusSite(site);
+    grid.appendChild(tile);
+  });
+  container.appendChild(grid);
+}
+
+// Bind metric/window handlers once
+function bindMetricWindowHandlers(){
+  const metricSel = document.getElementById('metric-select');
+  if (metricSel && !metricSel._bound) { metricSel.addEventListener('change', ()=> {
+    if (trendGrouping==='sites') updateTrendChart(); else updateRegionTrendChart();
+  }); metricSel._bound=true; }
+  const windowSel = document.getElementById('window-select');
+  if (windowSel && !windowSel._bound) { windowSel.addEventListener('change', ()=> {
+    if (trendGrouping==='sites') updateTrendChart(); else updateRegionTrendChart();
+  }); windowSel._bound=true; }
+}
+
+// Trend chips & chart (sites)
+function renderTrendChips(){
+  const wrap = document.getElementById('selected-sites');
+  if (!wrap) return;
+  wrap.innerHTML = selectedSiteIds.map((id)=>{
+    const s = (window.sitesData||{})[id]; if(!s) return '';
+    return `<span class="chip">${esc(s.site_name)} <button title="Remove" onclick="removeTrendSite('${id}')">✕</button></span>`;
+  }).join('');
+}
+function removeTrendSite(id){
+  selectedSiteIds = selectedSiteIds.filter(x=>x!==id);
+  renderTrendChips();
+  updateTrendChart();
+}
+
+// Infer region for overlay when possible
+function inferOverlayRegion(){
+  if (currentRegion !== 'All') return currentRegion;
+  const regions = new Set(
+    (selectedSiteIds || [])
+      .map(id => (window.sitesData || {})[id]?.region)
+      .filter(Boolean)
+  );
+  return (regions.size === 1) ? Array.from(regions)[0] : null;
+}
+
+function updateTrendChart(){
+  CHART_BIN_MS = getChartBinMs();
+
+  const canvas = document.getElementById('trend-chart'); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const metric = (document.getElementById('metric-select')?.value) || 'p95';
+  const hours  = parseInt((document.getElementById('window-select')?.value) || '48', 10);
+
+  const sites = selectedSiteIds
+    .map(id => (window.sitesData||{})[id])
+    .filter(Boolean)
+    .filter(s => currentRegion==='All' || (s.region===currentRegion));
+  if (sites.length === 0) {
+    if (trendChart) { trendChart.destroy(); trendChart=null; }
+    return;
+  }
+
+  const unionTs = new Set();
+  const per = sites.map((s,i)=>{
+    const {timestamps, series} = binnedSeries(s, hours, metric);
+    timestamps.forEach(t=>unionTs.add(t));
+    return { s, i, timestamps, series };
+  });
+  const labelsTs = Array.from(unionTs).sort((a,b)=>a-b);
+  const labels = labelsTs.map(istLabel);
+
+  const datasets = per.map(({s,i,timestamps,series})=>{
+    const idx = new Map(timestamps.map((t,j)=>[t,j]));
+    const data = labelsTs.map(t => {
+      const j = idx.get(t);
+      return (j==null)? null : series[j];
+    });
+    const labelText = (currentRegion==='All') ? `${s.site_name} (${s.region})` : s.site_name;
+    return {
+      label: labelText,
+      data,
+      borderColor: colorFor(i),
+      backgroundColor: colorFor(i),
+      borderWidth: 2,
+      pointRadius: 1.5,
+      spanGaps: true,
+      tension: 0.25
+    };
+  });
+
+  // Overlay region aggregate if applicable
+  const overlay = document.getElementById('overlay-region');
+  const overlayRegion = inferOverlayRegion();
+
+  const overlayLbl = document.getElementById('overlay-text');
+  if (overlayLbl) {
+    overlayLbl.textContent = 'Region aggregate' + (overlayRegion ? ` (${overlayRegion})` : '');
+  }
+
+  if (overlay?.checked && overlayRegion) {
+    const br = binnedRegionSeries(overlayRegion, hours, metric);
+    const idxR = new Map(br.timestamps.map((t,j)=>[t,j]));
+    const regionData = labelsTs.map(ts => {
+      const j = idxR.get(ts);
+      return (j==null)? null : br.series[j];
+    });
+    datasets.push({
+      label: `${overlayRegion} (${metric} agg)`,
+      data: regionData,
+      borderColor: '#444',
+      backgroundColor: '#444',
+      borderDash: [4,4],
+      borderWidth: 2,
+      pointRadius: 0,
+      spanGaps: true,
+      tension: 0.15
+    });
+  }
+
+  // SLO guide
+  const slo = 3.0;
+  datasets.push({
+    label: 'SLO 3.0s',
+    data: labelsTs.map(()=>slo),
+    borderColor: '#ef4444',
+    borderDash: [6,4],
+    borderWidth: 1,
+    pointRadius: 0,
+  });
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: { ticks: { maxRotation: 0, autoSkip: true } },
+        y: { title: { display: true, text: 'Load time (s)' }, beginAtZero: false }
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: (c) => `${c.dataset.label}: ${c.parsed.y?.toFixed ? c.parsed.y.toFixed(2) : c.parsed.y}s`
+          }
+        }
+      }
+    }
+  });
+}
+
+// Region trend chips & chart
+function renderRegionTrendChips(){
+  const wrap = document.getElementById('selected-regions');
+  if (!wrap) return;
+  wrap.innerHTML = selectedRegionKeys.map((r,i)=>
+    `<span class="chip">${esc(r)} <button title="Remove" onclick="removeRegionTrend('${r}')">✕</button></span>`
+  ).join('');
+}
+function removeRegionTrend(r){
+  selectedRegionKeys = selectedRegionKeys.filter(x=>x!==r);
+  renderRegionTrendChips();
+  updateRegionTrendChart();
+}
+function updateRegionTrendChart(){
+  CHART_BIN_MS = getChartBinMs();
+
+  const canvas = document.getElementById('trend-chart'); if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const metric = (document.getElementById('metric-select')?.value) || 'p95';
+  const hours  = parseInt((document.getElementById('window-select')?.value) || '48', 10);
+
+  const regions = (selectedRegionKeys||[]).filter(r=> (window.regionIndex||{})[r]?.length);
+  if (regions.length === 0) {
+    if (trendChart) { trendChart.destroy(); trendChart=null; }
+    return;
+  }
+
+  const unionTs = new Set();
+  const per = regions.map((r,i)=>{
+    const {timestamps, series} = binnedRegionSeries(r, hours, metric);
+    timestamps.forEach(t=>unionTs.add(t));
+    return { r, i, timestamps, series };
+  });
+  const labelsTs = Array.from(unionTs).sort((a,b)=>a-b);
+  const labels = labelsTs.map(istLabel);
+
+  const datasets = per.map(({r,i,timestamps,series})=>{
+    const idx = new Map(timestamps.map((t,j)=>[t,j]));
+    const data = labelsTs.map(t => {
+      const j = idx.get(t);
+      return (j==null)? null : series[j];
+    });
+    return {
+      label: `${r} (${metric==='p95'?'p95':'avg'})`,
+      data,
+      borderColor: colorFor(i),
+      backgroundColor: colorFor(i),
+      borderWidth: 2,
+      pointRadius: 1.5,
+      spanGaps: true,
+      tension: 0.25
+    };
+  });
+
+  const slo = 3.0;
+  datasets.push({
+    label: 'SLO 3.0s',
+    data: labelsTs.map(()=>slo),
+    borderColor: '#ef4444',
+    borderDash: [6,4],
+    borderWidth: 1,
+    pointRadius: 0,
+  });
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: { ticks: { maxRotation: 0, autoSkip: true } },
+        y: { title: { display: true, text: 'Load time (s)' }, beginAtZero: false }
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: (c) => `${c.dataset.label}: ${c.parsed.y?.toFixed ? c.parsed.y.toFixed(2) : c.parsed.y}s`
+          }
+        }
+      }
+    }
+  });
+}
+function autoSelectIssueSites(){
+  if (regionRankBy !== 'issues') return;
+
+  let list = Object.values(window.sitesData || {});
+  if (currentRegion !== 'All') list = list.filter(s => (s.region || 'Global') === currentRegion);
+
+  const issueSites = list.filter(s => s.status==='warning' || s.status==='critical');
+  if (!issueSites.length) return;
+
+  const sev = s => (s.status==='critical'?0:1);
+  issueSites.sort((a,b)=> sev(a)-sev(b) || (b?.latency?.p95||0)-(a?.latency?.p95||0));
+
+  const MAX_LINES = 6;
+  selectedSiteIds = issueSites.slice(0, MAX_LINES).map(s=>s.site_id);
+
+  renderTrendChips();
+  updateTrendChart();
+}
+
+// ===== Alerts =====
+function setAlertsWindow(el){
+  document.querySelectorAll('.alerts-toolbar [data-win]').forEach(ch=>ch.classList.remove('toggled'));
+  el.classList.add('toggled');
+  alertsWindow = el.getAttribute('data-win');
+  renderAlerts();
+}
+function toggleSev(el){
+  el.classList.toggle('toggled');
+  const k = el.getAttribute('data-sev');
+  alertsSev[k] = el.classList.contains('toggled');
+  renderAlerts();
+}
+function alertHash(a){ return `${a.level}|${a.site}|${a.message}`; }
+function ackAlert(h, ms){
+  const until = Date.now() + ms;
+  ackStore[h] = until;
+  localStorage.setItem('ackAlerts', JSON.stringify(ackStore));
+  renderAlerts();
+}
+// Exclusive alert window bounds helper
+function getAlertsBounds(win){
+  const now = Date.now();
+  const H = 3600*1000;
+  switch (win) {
+    case '1h':   return [now - 1*H,  now];          // last 0–1h
+    case '2h':   return [now - 2*H,  now];          // support if UI uses 2h
+    case '6h':   return [now - 6*H,  now - 1*H];    // 1–6h (exclusive of last 1h)
+    case '12h':  return [now - 12*H, now - 6*H];    // 6–12h
+    case '24h':  return [now - 24*H, now - 12*H];   // 12–24h
+    case 'last24': return [now - 24 * RUN_BIN_MS, now]; // last 24 runs (by runs)
+    default:     return [now - 24*H, now];
+  }
+}
+
+
+function renderAlerts(){
+  const allSites = Object.values(window.sitesData || {});
+  const scoped = getSitesFilteredByRegion(allSites);
+  const alerts = [];
+  scoped.forEach(site=>{
+    const L = site.latency;
+
+    if (site.outage || (site.success_rate === 0 && site.load_times.length === 0)) {
+      alerts.push({
+        level: 'high',
+        site: site.site_name,
+        message: `Site outage: 0% success in last ${CURRENT_WINDOW_HOURS}h`,
+        detail: `No LOADED samples recorded across ${site.total_checks} checks — investigate connectivity/DNS/app errors`,
+        time: new Date(site.last_check)
+      });
+    }
+
+    if (site.total_checks >= 2 && site.curr_data_completeness < 0.5) {
+      alerts.push({
+        level: 'medium',
+        site: site.site_name,
+        message: `Telemetry gap: only ${(site.curr_data_completeness*100).toFixed(0)}% load timings`,
+        detail: 'Monitoring data incomplete — distinguish monitoring issue vs site issue',
+        time: new Date(site.last_check)
+      });
+    }
+
+    const allowLatencyAlerts = !(site.load_times.length < MIN_SAMPLES_CURRENT || !site.baseline_mature);
+
+    if (allowLatencyAlerts) {
+      if (L.tier === 'critical'){
+        const outlierNote = (L.outlier?.crit || L.outlier?.warn) ? `; outlier max=${L.max.toFixed(2)}s` : '';
+        alerts.push({
+          level:'high', site:site.site_name,
+          message:`Major latency issue: p95 ${L.p95.toFixed(2)}s (SLO ${L.thresholds.sloP95.toFixed(2)}s)`,
+          detail:`Δavg=${L.absDelta.toFixed(2)}s, +${L.relPct.toFixed(0)}%, z=${L.z.toFixed(1)}; evidence ${(L.evidCritFrac*100).toFixed(0)}%${outlierNote}`,
+          time:new Date(site.last_check)
+        });
+      } else if (L.tier === 'warning'){
+        const outlierNote = (L.outlier?.crit || L.outlier?.warn) ? `; outlier max=${L.max.toFixed(2)}s` : '';
+        alerts.push({
+          level:'medium', site:site.site_name,
+          message:`Latency degradation: p95 ${L.p95.toFixed(2)}s above SLO`,
+          detail:`Δavg=${L.absDelta.toFixed(2)}s, +${L.relPct.toFixed(0)}%, z=${L.z.toFixed(1)}; evidence ${(L.evidWarnFrac*100).toFixed(0)}%${outlierNote}`,
+          time:new Date(site.last_check)
+        });
+      }
+    } else if (L.sloBreach) {
+      alerts.push({
+        level:'low', site:site.site_name,
+        message:`Tail breach observed: p95 ${L.p95.toFixed(2)}s (SLO ${L.thresholds.sloP95.toFixed(2)}s)`,
+        detail:`Baseline warming or low sample count — monitoring`,
+        time:new Date(site.last_check)
+      });
+    }
+
+    if (!site.outage) {
+      if(site.success_rate<85) alerts.push({level:'high',site:site.site_name,message:`Critical: ${site.success_rate.toFixed(1)}% success rate`,detail:'Site reliability compromised',time:new Date(site.last_check)});
+      else if(site.success_rate<95) alerts.push({level:'medium',site:site.site_name,message:`Reliability concern: ${site.success_rate.toFixed(1)}% success rate`,detail:'Monitor for trends',time:new Date(site.last_check)});
+    }
+
+    if (!site.outage && site.status==='healthy' && site.early_warning) {
+      let detail = '3 consecutive runs ≥ +25%';
+      if (site.ew_tail && site.ew_tail.length===3) {
+        detail += ` (avg: ${site.ew_tail[0].toFixed(2)}s → ${site.ew_tail[1].toFixed(2)}s → ${site.ew_tail[2].toFixed(2)}s)`;
+      }
+      alerts.push({
+        level:'low', site:site.site_name,
+        message:`Early warning: rising latency pattern`,
+        detail,
+        time:new Date(site.last_check)
+      });
+    }
+
+    if(site.stability_score<70) alerts.push({level:'medium',site:site.site_name,message:`Performance inconsistent (stability: ${site.stability_score.toFixed(1)}%)`,detail:'High load time variance',time:new Date(site.last_check)});
+  });
+
+  const sevAllow = a => (a.level==='high' && alertsSev.high) || (a.level==='medium' && alertsSev.medium) || (a.level==='low' && alertsSev.low);
+
+  const [startMs, endMs] = getAlertsBounds(alertsWindow);
+  // Show explicit window range (local time)
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const fmt = {hour:'2-digit', minute:'2-digit'};
+    const rangeText = `${new Date(startMs).toLocaleTimeString([], fmt)}–${new Date(endMs).toLocaleTimeString([], fmt)} ${tz}`;
+    const listEl = document.getElementById('alerts-list');
+    let hdrEl = document.getElementById('alerts-window-range');
+    if (!hdrEl && listEl) {
+      listEl.insertAdjacentHTML('beforebegin',
+        `<div id="alerts-window-range" style="margin:6px 2px 4px 2px;font-size:12px;opacity:.75">Window: ${rangeText}</div>`);
+    } else if (hdrEl) {
+      hdrEl.textContent = `Window: ${rangeText}`;
+    }
+    console.info('Alerts window (exclusive):', alertsWindow, new Date(startMs), new Date(endMs));
+  } catch(e) { console.warn('Range label update failed:', e); }
+
+  const now = Date.now();
+  const inWindow = alerts
+    .map(a => {
+      const t = (a.time instanceof Date) ? a.time.getTime()
+              : (typeof a.time === 'number' ? a.time : new Date(a.time).getTime());
+      return {...a, _t:t};
+    })
+    .filter(a => a._t > startMs && a._t <= endMs)
+    .filter(sevAllow);
+
+  const seen = new Set();
+  const finalAlerts = [];
+  for (const a of inWindow){
+    const h = alertHash(a);
+    if (seen.has(h)) continue;
+    if (ackStore[h] && now < ackStore[h]) continue;
+    seen.add(h);
+    finalAlerts.push({...a, _hash:h});
+  }
+
+  finalAlerts.sort((a,b)=>({high:0,medium:1,low:2}[a.level]-({high:0,medium:1,low:2}[b.level]) || (b.time-a.time)));
+
+  const c=document.getElementById('alerts-list');
+  if(!finalAlerts.length){
+    c.innerHTML='<div class="alert-item alert-low">✅ No alerts in this window</div>';
+  } else {
+    c.innerHTML = finalAlerts.map(a=>{
+      const icon = a.level==='high'?'🚨':(a.level==='medium'?'⚠️':'📊');
+      return `<div class="alert-item alert-${a.level}">
+        <strong>${icon} ${a.level.toUpperCase()}:</strong> ${esc(a.site)} - ${esc(a.message)}
+        ${a.detail?`<br><em>${esc(a.detail)}</em>`:''}
+        <div style="font-size:12px;color:#6c757d;margin-top:4px">${asIST(a.time)}</div>
+        <div class="alert-actions">
+          <button class="btn" onclick="ackAlert('${a._hash}', 6*3600*1000)">Snooze 6h</button>
+          <button class="btn" onclick="ackAlert('${a._hash}', 365*24*3600*1000)">Acknowledge</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('alerts-count').textContent = finalAlerts.length;
+}
+
+// ===== Sites list & filters =====
+function filterSites(filterType){
+  if(currentFilter===filterType) filterType='all';
+  currentFilter = filterType;
+  document.querySelectorAll('.kpi-card').forEach(c=>c.classList.remove('active'));
+  const activeCard = (filterType!=='all') ? document.querySelector(`[data-filter="${filterType}"]`) : null;
+  if (activeCard) activeCard.classList.add('active');
+  applyCurrentFilter();
+  if (filterType!=='all'){ setTimeout(()=>document.querySelector('#sites-container').scrollIntoView({behavior:'smooth',block:'start'}),100); }
+}
+function handleSearch(){ const i=document.getElementById('search-input'); const b=document.getElementById('clear-search'); currentSearchTerm=i.value;
+  if(currentSearchTerm && currentSearchTerm.trim()){ b.style.display='block'; i.style.borderColor='#667eea'; }
+  else { b.style.display='none'; i.style.borderColor='#dee2e6'; }
+  applyCurrentFilter();
+}
+function handleSearchKeyboard(e){ if(e.key==='Escape') clearSearch(); else handleSearch(); }
+function clearSearch(){ const i=document.getElementById('search-input'); const b=document.getElementById('clear-search'); i.value=''; currentSearchTerm=''; b.style.display='none'; i.style.borderColor='#dee2e6'; applyCurrentFilter(); }
+
+
+
+// Clear list-level filters but preserve Region
+function clearSiteListFilters(){
+  currentFilter = 'all';
+  document.querySelectorAll('.kpi-card').forEach(c=>c.classList.remove('active'));
+  clearSearch();
+}
+
+function applyCurrentFilter(){
+  let allSites = Object.values(window.sitesData || {});
+  allSites = getSitesFilteredByRegion(allSites);
+  let filtered = [...allSites]; let text='';
+  switch(currentFilter){
+    case 'critical': filtered = allSites.filter(s=>s.status==='critical'); text=`Showing ${filtered.length} Critical Sites`; break;
+    case 'warning':  filtered = allSites.filter(s=>s.status==='warning');  text=`Showing ${filtered.length} Warning Sites`;  break;
+    case 'healthy':  filtered = allSites.filter(s=>s.status==='healthy');  text=`Showing ${filtered.length} Healthy Sites`;  break;
+    case 'health':   filtered.sort((a,b)=>a.performance_score-b.performance_score); text='Sites Sorted by Health Score (Lowest First)'; break;
+    case 'success':  filtered.sort((a,b)=>a.success_rate-b.success_rate);   text='Sites Sorted by Success Rate (Lowest First)'; break;
+    case 'load-time':filtered.sort((a,b)=>b.latency.p95-a.latency.p95); text='Sites Sorted by p95 Load Time (Slowest First)'; break;
+    default:
+      filtered.sort((a,b)=>({critical:0,warning:1,healthy:2}[a.status]-({critical:0,warning:1,healthy:2}[b.status])));
+      text=`Showing ${currentRegion==='All'?'All':currentRegion} ${allSites.length} Sites`;
+  }
+  if(currentSearchTerm && currentSearchTerm.trim()){
+    const t=currentSearchTerm.toLowerCase().trim();
+    filtered = filtered.filter(s=>s.site_name.toLowerCase().includes(t) || (s.site_id||'').toLowerCase().includes(t));
+  }
+  const info=document.getElementById('filter-info'); const el=document.getElementById('filter-text');
+  if(currentFilter==='all' && !currentSearchTerm.trim() && currentRegion==='All') info.classList.remove('active');
+  else { el.textContent=text; info.classList.add('active'); }
+  renderFilteredSites(filtered);
+
+  const auto = document.getElementById('auto-one')?.checked;
+  if (auto && filtered.length === 1 && trendGrouping === 'sites'){
+    selectedSiteIds = [filtered[0].site_id];
+    renderTrendChips(); updateTrendChart();
+  }
+}
+
+function renderFilteredSites(list){
+  const c = document.getElementById('sites-container');
+  if(!list.length){
+    c.innerHTML = `<div class="site-card" style="text-align:center;padding:40px;border-left:5px solid #28a745;">
+      <h3>🎉 No sites found</h3><p>Try adjusting your search or filter criteria.</p></div>`;
+    document.getElementById('sites-count').textContent = 0;
+    return;
+  }
+  c.innerHTML = list.map(site=>{
+    const icon = site.status==='critical'?'🚨':(site.status==='warning'?'⚠️':'✅');
+    const scoreClass = site.status==='critical'?'score-critical':(site.status==='warning'?'score-warning':'score-healthy');
+
+    const safeName = esc(site.site_name);
+    const safeIdAttr = esc(site.site_id);
+
+    let baselineSection = '';
+    const winTxt = typeof site.baseline?.baseline_window_days==='number'
+      ? `${site.baseline.baseline_window_days} days` : (site.baseline?.baseline_window_days || '');
+    const warmNote = (!site.baseline_mature && site.baseline && !site.baseline.is_single_run) ? ' (warming)' : '';
+
+    if(site.baseline && !site.baseline.is_single_run){
+      const loadCls = site.load_time_trend>0?'change-negative':'change-positive';
+      const succCls = site.success_rate_trend>0?'change-positive':'change-negative';
+      const qualityIcon = site.baseline.data_completeness >= 0.8 ? '🟢' : site.baseline.data_completeness >= 0.6 ? '🟡' : '🔴';
+      baselineSection = `
+        <div class="baseline-info">
+          <div class="baseline-row"><span class="baseline-label">📍 Region:</span><span>${esc(site.region||'Global')}</span></div>
+          <div class="baseline-row"><span class="baseline-label">📊 Baseline (${site.baseline.baseline_type}):</span><span>${esc(winTxt)}${warmNote}</span></div>
+          <div class="baseline-row"><span class="baseline-label">Data Quality:</span><span>${qualityIcon} ${(site.baseline.data_completeness * 100).toFixed(0)}% complete (${site.baseline.load_time_data_points}/${site.baseline.total_checks} load times)</span></div>
+          <div class="baseline-row"><span class="baseline-label">Baseline Avg:</span><span>${site.baseline.avg_load_time.toFixed(2)}s</span></div>
+          <div class="baseline-row"><span class="baseline-label">Current p95:</span><span>${site.latency.p95.toFixed(2)}s (SLO ${site.latency.thresholds.sloP95.toFixed(2)}s)</span></div>
+          <div class="baseline-row"><span class="baseline-label">Avg Change:</span>
+            <span class="${loadCls}">${site.load_time_trend>0?'+':''}${site.load_time_trend.toFixed(1)}%
+              <small>(${site.baseline.avg_load_time.toFixed(2)}s → ${site.avg_load_time.toFixed(2)}s)</small>
+            </span>
+          </div>
+          <div class="baseline-row"><span class="baseline-label">Baseline Success Rate:</span><span>${site.baseline.success_rate.toFixed(1)}%</span></div>
+          <div class="baseline-row"><span class="baseline-label">Change:</span>
+            <span class="${succCls}">${site.success_rate_trend>0?'+':''}${site.success_rate_trend.toFixed(1)}%
+              <small>(${site.baseline.success_rate.toFixed(0)}% → ${site.success_rate.toFixed(0)}%)</small>
+            </span>
+          </div>
+        </div>`;
+    } else if(site.baseline && site.baseline.is_single_run){
+      const iconA = site.performance_score>80?'✅':(site.performance_score>60?'⚠️':'🚨');
+      const textA = site.performance_score>80?'Healthy':(site.performance_score>60?'Needs Attention':'Critical');
+      baselineSection = `
+        <div class="baseline-info">
+          <div class="baseline-row"><span class="baseline-label">📍 Region:</span><span>${esc(site.region||'Global')}</span></div>
+          <div class="baseline-row"><span class="baseline-label">🏁 Initial Assessment:</span><span>(${site.baseline.baseline_type})</span></div>
+          <div class="baseline-row"><span class="baseline-label">p95 (current):</span><span>${site.latency.p95.toFixed(2)}s</span></div>
+          <div class="baseline-row"><span class="baseline-label">Performance Score:</span><span>${site.performance_score.toFixed(1)}/100</span></div>
+          <div class="baseline-row"><span class="baseline-label">Status:</span><span>${iconA} ${textA}</span></div>
+          <div class="baseline-row"><span class="baseline-label">Next:</span><span style="font-size:12px;">Need ${Math.max(0, 3 - site.total_checks)} more checks for baseline</span></div>
+        </div>`;
+    } else {
+      baselineSection = `
+        <div class="baseline-info">
+          <div class="baseline-row"><span class="baseline-label">📍 Region:</span><span>${esc(site.region||'Global')}</span></div>
+          <div class="baseline-row"><span class="baseline-label">📊 Status:</span><span>Insufficient data for baseline</span></div>
+          <div class="baseline-row"><span class="baseline-label">p95 (current):</span><span>${site.latency.p95.toFixed(2)}s</span></div>
+          <div class="baseline-row"><span class="baseline-label">Load Range:</span><span>${site.min_load_time.toFixed(2)}s - ${site.max_load_time.toFixed(2)}s</span></div>
+          <div class="baseline-row"><span class="baseline-label">Last Check:</span><span>${asIST(site.last_check)}</span></div>
+        </div>`;
+    }
+
+    return `
+      <div class="site-card site-${site.status}" data-site-id="${safeIdAttr}">
+        <div class="site-header">
+          <div class="site-icon">${icon}</div>
+          <div class="site-name">${safeName}</div>
+          <div class="site-score ${scoreClass}">${site.performance_score.toFixed(0)}/100</div>
+        </div>
+        <div class="site-metrics">
+          <div class="metric"><div class="metric-value">${site.success_rate.toFixed(0)}%</div><div class="metric-label">Success Rate</div></div>
+          <div class="metric"><div class="metric-value">${site.avg_load_time.toFixed(2)}s</div><div class="metric-label">Avg Load</div></div>
+          <div class="metric"><div class="metric-value">${site.latency.p95.toFixed(2)}s</div><div class="metric-label">p95 Load</div></div>
+          <div class="metric"><div class="metric-value">${site.total_checks}</div><div class="metric-label">Total Checks</div></div>
+        </div>
+        <div style="margin-top:15px;padding-top:15px;border-top:1px solid #dee2e6;font-size:13px;color:#6c757d">
+          <div>Region: <strong>${esc(site.region||'Global')}</strong></div>
+          <div>Min/Max Load: ${site.min_load_time.toFixed(2)}s / ${site.max_load_time.toFixed(2)}s</div>
+          <div>Last Check: ${asIST(site.last_check)}</div>
+        </div>
+        ${baselineSection}
+      </div>`;
+  }).join('');
+  document.getElementById('sites-count').textContent = list.length;
+}
+
+function focusSite(site){
+  document.getElementById('search-input').value = site.site_name;
+  handleSearch();
+  setTimeout(() => {
+    const siteCard = document.querySelector(`[data-site-id="${CSS.escape(site.site_id)}"]`);
+    if (siteCard) {
+      siteCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      siteCard.style.border = '3px solid #667eea';
+      siteCard.style.boxShadow = '0 0 20px rgba(102,126,234,0.5)';
+      setTimeout(() => { siteCard.style.border=''; siteCard.style.boxShadow=''; }, 3000);
+    }
+  }, 100);
+}
+
+// ===== Others modal =====
+function showOthersModal(){
+  const m = document.getElementById('others-modal');
+  const c = document.getElementById('others-content');
+  c.innerHTML = (othersCache&&othersCache.length)
+    ? othersCache.map(v=>`<div class="region-row"><div>${v.r}</div><div>${v.count} sites · p95 ${v.p95?v.p95.toFixed(2):'—'}s · ✅ ${v.ok} | ⚠️ ${v.warn} | 🚨 ${v.crit}</div></div>`).join('')
+    : '<div>No hidden regions.</div>';
+  m.classList.add('show');
+  m.setAttribute('aria-hidden','false');
+}
+function hideOthersModal(){
+  const m = document.getElementById('others-modal');
+  m.classList.remove('show');
+  m.setAttribute('aria-hidden','true');
+}
+
+function updateLastRefresh(){
+  const el = document.getElementById('last-update');
+  if (!el) return;
+
+  const lastTs = (auditData && auditData.length)
+    ? Math.max(...auditData.map(e => parseTsMs(e.ts)))
+    : Date.now(); // fallback if no data
+
+  el.textContent = asIST(lastTs);
+}
+
+function _latestVmFactor(){
+  for (let i = auditData.length - 1; i >= 0; i--){
+    const e = auditData[i];
+    if (!e) continue;
+    if (typeof e.vm_performance_factor === 'number') return e.vm_performance_factor;
+    if (typeof e.vm_factor === 'number') return e.vm_factor;
+    if (e.event === 'vm_calibration' && typeof e.performance_factor === 'number') return e.performance_factor;
+  }
+  return null;
+}
+
+function updateVmPill(){
+  const pills = document.querySelectorAll('.vm-factor-pill');
+  if (!pills.length) return;
+  const f = _latestVmFactor();
+  pills.forEach(pill => {
+    if (typeof f === 'number' && isFinite(f) && f > 1.0){
+      pill.textContent = `VM×${f.toFixed(1)} normalization`;
+      pill.style.display = 'inline-block';
+    } else {
+      pill.style.display = 'none';
+    }
+  });
+}
+
+
+function refreshData(){ loadDashboard(); }
+function showError(m){ document.getElementById('sites-container').innerHTML = `<div class="error">${esc(m)}</div>`; }
+window.addEventListener('beforeunload', function(){ if (refreshInterval) clearInterval(refreshInterval); });
+</script>
+</body>
+</html>
